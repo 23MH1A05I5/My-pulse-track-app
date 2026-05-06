@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1095435725270",
+    "project_id": "pulse-track-5cb0c",
+    "storage_bucket": "pulse-track-5cb0c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1095435725270:android:9975739b58299ff1e1dc77",
+        "android_client_info": {
+          "package_name": "com.example.pulse_track"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWONBU_-Ei2KOlp4KgkQrlWf7HV6ItjuU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
