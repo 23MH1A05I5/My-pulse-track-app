@@ -10,15 +10,18 @@ import '../models/bpm_record.dart';
 class ApiService {
   // Use 10.0.2.2 for Android Emulator, localhost for Web/iOS Simulator
   static String get baseUrl {
+    // Use the new deployed Render server URL
+    return 'https://pulse-track-backend-xffm.onrender.com/api';
+
+    /* Local development URLs
     if (kIsWeb) {
       return 'http://localhost:5000/api';
     } else if (Platform.isAndroid) {
-      // NOTE: Use 10.0.2.2 for Android Emulator, your computer IP (e.g. 10.91.79.227) for real device
-      // Using your local IP: 10.91.79.227
-      return 'http://10.91.79.227:5000/api';
+      return 'http://10.16.52.216:5000/api';
     } else {
       return 'http://localhost:5000/api';
     }
+    */
   }
 
   // Auth
@@ -30,7 +33,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'email': email, 'password': password}),
           )
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 30));
 
       final data = jsonDecode(response.body);
       if (response.statusCode == 200) {
@@ -59,7 +62,7 @@ class ApiService {
               'password': password,
             }),
           )
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 201) {
         return UserModel.fromJson(jsonDecode(response.body));
