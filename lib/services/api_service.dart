@@ -10,13 +10,15 @@ import '../models/bpm_record.dart';
 class ApiService {
   // Use 10.0.2.2 for Android Emulator, localhost for Web/iOS Simulator
   static String get baseUrl {
-    // Use the new deployed Render server URL
-    return 'https://pulse-track-backend-xffm.onrender.com/api';
+    // Production Render URL
+    return 'https://pulse-track-backend-1-bgfi.onrender.com/api';
 
     /* Local development URLs
     if (kIsWeb) {
       return 'http://localhost:5000/api';
     } else if (Platform.isAndroid) {
+      // Use 10.0.2.2 for Emulator, or your local machine IP for physical devices
+      // Current local IP: 10.16.52.216
       return 'http://10.16.52.216:5000/api';
     } else {
       return 'http://localhost:5000/api';
