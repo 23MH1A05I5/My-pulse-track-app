@@ -20,7 +20,7 @@ class AiAdviceResult {
 
 class AiAdviceService {
   // ✅ Replace with your free Gemini API key from https://aistudio.google.com/
-  static const String _apiKey = 'YOUR_GEMINI_API_KEY_HERE'; // 🔑 Add your key from https://aistudio.google.com/
+  static const String _apiKey = 'AIzaSyBsxpbqaSZLVCUJTGlrxukWoOtCSWVF-VI';
   static const String _endpoint =
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
