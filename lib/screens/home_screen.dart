@@ -10,6 +10,7 @@ import 'scan_screen.dart';
 import 'dart:math' show Random;
 import 'breathing_screen.dart';
 import 'sleep_screen.dart';
+import 'ai_chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -232,6 +233,16 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F1216),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const AiChatScreen()),
+          );
+        },
+        backgroundColor: const Color(0xFF6C63FF),
+        child: const Icon(Icons.auto_awesome, color: Colors.white),
+      ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _fetchData,

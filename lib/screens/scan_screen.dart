@@ -244,26 +244,60 @@ class _ScanScreenState extends State<ScanScreen> {
       _isFinished = true;
       _scanProgress = 1.0;
     });
-    
-    // Generate a realistic normal resting heart rate
-    final dynamicBpm = 65 + Random().nextInt(20);
+
+    final dynamicBpm = 65 + Random().nextInt(20); // Realistic resting BPM: 65–84
+
+    try {
+      final user = Provider.of<AuthProvider>(context, listen: false).user;
+      if (user != null) {
+        String status = 'Normal';
+        if (dynamicBpm < 50) status = 'Low';
+        if (dynamicBpm > 100) status = 'High';
+
+        final record = BpmRecord(
+          userId: user.id,
+          bpm: dynamicBpm,
+          status: status,
+          timestamp: DateTime.now(),
+        );
+
+        await ApiService().addRecord(record);
+
+        if (mounted) {
+          if (dynamicBpm < 50 || dynamicBpm > 100) {
+            HapticFeedback.heavyImpact();
+          } else {
+            HapticFeedback.vibrate();
+          }
+
+          setState(() => _isSaving = false);
+
+          // Navigate to the full Result + AI screen
+          await Navigator.of(context).push(
+            PageRouteBuilder(
+              pageBuilder: (_, __, ___) => ResultScreen(
+                bpm: dynamicBpm,
+                status: status,
+                onDone: () {
+                  Navigator.of(context).pop(); // pop ResultScreen
+                  if (widget.onScanComplete != null) widget.onScanComplete!();
+                },
+              ),
+              transitionsBuilder: (_, animation, __, child) =>
+                  FadeTransition(opacity: animation, child: child),
+              transitionDuration: const Duration(milliseconds: 500),
+            ),
+          );
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error in _stopScan: $e');
+    }
 
     if (mounted) {
-      setState(() {
-        _isSaving = false;
-      });
-      
-      // Navigate to Result Screen
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ResultScreen(bpm: dynamicBpm),
-        ),
-      ).then((_) {
-        if (widget.onScanComplete != null) {
-          widget.onScanComplete!();
-        }
-      });
+      setState(() => _isSaving = false);
+      if (widget.onScanComplete != null) widget.onScanComplete!();
     }
   }
 

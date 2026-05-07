@@ -22,7 +22,7 @@ class AiAdviceService {
   // ✅ Replace with your free Gemini API key from https://aistudio.google.com/
   static const String _apiKey = 'AIzaSyBsxpbqaSZLVCUJTGlrxukWoOtCSWVF-VI';
   static const String _endpoint =
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
   Future<AiAdviceResult> getAdvice({
     required int bpm,
@@ -37,6 +37,68 @@ class AiAdviceService {
       }
     }
     return _getFallback(bpm: bpm);
+  }
+
+  Future<String> chatWithAi(String message, List<Map<String, String>> history) async {
+    if (_apiKey == 'YOUR_GEMINI_API_KEY_HERE') {
+      return "I'm currently running in offline mode. I can only provide basic scan advice right now!";
+    }
+
+    try {
+      final contents = <Map<String, dynamic>>[];
+      
+      const systemContext = "You are a helpful and knowledgeable AI health assistant for the PulseTrack app. "
+          "Answer briefly and safely. If asked for medical diagnosis, remind them you are an AI and they should see a doctor.";
+
+      // Build contents from history
+      for (int i = 0; i < history.length; i++) {
+        final msg = history[i];
+        String text = msg['text'] ?? '';
+        
+        // Prepend system context to the very first user message for better grounding
+        if (i == 0 && msg['role'] == 'user') {
+          text = "$systemContext\n\n$text";
+        } else if (i == 0 && msg['role'] != 'user' && history.length > 1 && history[1]['role'] == 'user') {
+            // If first msg is AI (intro), skip system context there, will add to next user msg
+        }
+
+        contents.add({
+          'role': msg['role'] == 'user' ? 'user' : 'model',
+          'parts': [{'text': text}]
+        });
+      }
+
+      // If history already contains the message (added in UI state), we don't need to add it again
+      // The ai_chat_screen adds it before calling this.
+      if (contents.isEmpty || contents.last['parts'][0]['text'] != message) {
+         contents.add({
+          'role': 'user',
+          'parts': [{'text': contents.isEmpty ? "$systemContext\n\n$message" : message}]
+        });
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$_endpoint?key=$_apiKey'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'contents': contents,
+              'generationConfig': {'temperature': 0.7, 'maxOutputTokens': 400},
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['candidates'][0]['content']['parts'][0]['text'] as String;
+      }
+      
+      debugPrint('Gemini Error ${response.statusCode}: ${response.body}');
+      return "I'm having trouble connecting to the AI server. Please try again in a moment.";
+    } catch (e) {
+      debugPrint('Gemini Chat API error: $e');
+      return "Sorry, I couldn't process that due to a network error. Check your connection!";
+    }
   }
 
   Future<AiAdviceResult?> _callGemini({
