@@ -15,7 +15,16 @@ class ResultScreen extends StatefulWidget {
 
 class _ResultScreenState extends State<ResultScreen> {
   final ApiService _apiService = ApiService();
-  bool _isSaving = false;
+  bool _isSaving = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Start auto-saving immediately
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _saveRecord();
+    });
+  }
 
   void _saveRecord() async {
     setState(() => _isSaving = true);
@@ -35,17 +44,27 @@ class _ResultScreenState extends State<ResultScreen> {
 
       final success = await _apiService.addRecord(record);
       
-      setState(() => _isSaving = false);
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+      
       if (success) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Record saved successfully!')),
+          const SnackBar(
+            content: Text('Record saved automatically!'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
-        Navigator.of(context).pop(); // Go back to Home/Scan
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to save record.')),
+          const SnackBar(
+            content: Text('Failed to save record.'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     }
@@ -100,16 +119,32 @@ class _ResultScreenState extends State<ResultScreen> {
             const Spacer(),
             SizedBox(
               width: double.infinity,
+              height: 56,
               child: ElevatedButton(
-                onPressed: _isSaving ? null : _saveRecord,
-                child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : const Text('SAVE RECORD'),
+                onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryRed,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: _isSaving 
+                  ? const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                        SizedBox(width: 12),
+                        Text('SAVING RECORD...'),
+                      ],
+                    ) 
+                  : const Text('DONE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
             const SizedBox(height: 16),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Discard', style: TextStyle(color: Colors.grey)),
-            ),
+            if (!_isSaving)
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Back to Home', style: TextStyle(color: Colors.grey)),
+              ),
           ],
         ),
       ),

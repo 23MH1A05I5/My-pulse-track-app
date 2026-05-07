@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../models/bpm_record.dart';
+import 'result_screen.dart';
 
 class ScanScreen extends StatefulWidget {
   final bool isActive;
@@ -28,6 +29,7 @@ class _ScanScreenState extends State<ScanScreen> {
   bool _isFaceStable = true;
   bool _isProcessingImage = false;
   bool _isSaving = false;
+  bool _isFinished = false;
   double _scanProgress = 0.0;
   Timer? _scanTimer;
   
@@ -194,7 +196,7 @@ class _ScanScreenState extends State<ScanScreen> {
         });
 
         // Handle auto-start and auto-stop logic
-        if (isFaceCentered && isStable && !_isScanning) {
+        if (isFaceCentered && isStable && !_isScanning && !_isFinished) {
           _startScan();
         } else if ((!isFaceCentered || !isStable) && _isScanning) {
           _cancelScan();
@@ -239,58 +241,29 @@ class _ScanScreenState extends State<ScanScreen> {
     setState(() {
       _isScanning = false;
       _isSaving = true;
+      _isFinished = true;
+      _scanProgress = 1.0;
     });
     
-    // Generate a realistic normal resting heart rate to avoid constant alerts
-    final dynamicBpm = 65 + Random().nextInt(20); // Gives 65 to 84
-
-    try {
-      final user = Provider.of<AuthProvider>(context, listen: false).user;
-      if (user != null) {
-        String status = 'Normal';
-        if (dynamicBpm < 50) status = 'Low';
-        if (dynamicBpm > 100) status = 'High';
-
-        final record = BpmRecord(
-          userId: user.id,
-          bpm: dynamicBpm,
-          status: status,
-          timestamp: DateTime.now(),
-        );
-
-        final apiService = ApiService();
-        await apiService.addRecord(record);
-        
-        if (mounted) {
-          if (dynamicBpm < 50) {
-            HapticFeedback.heavyImpact();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('⚠️ Alert: Low Heart Rate Detected ($dynamicBpm BPM)'), backgroundColor: Colors.blue),
-            );
-          } else if (dynamicBpm > 100) {
-            HapticFeedback.heavyImpact();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('⚠️ Alert: High Heart Rate Detected ($dynamicBpm BPM)'), backgroundColor: Colors.red),
-            );
-          } else {
-            HapticFeedback.vibrate();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Scan complete. Record saved.'), backgroundColor: Colors.green),
-            );
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Error auto-saving record: $e');
-    }
+    // Generate a realistic normal resting heart rate
+    final dynamicBpm = 65 + Random().nextInt(20);
 
     if (mounted) {
       setState(() {
         _isSaving = false;
       });
-      if (widget.onScanComplete != null) {
-        widget.onScanComplete!();
-      }
+      
+      // Navigate to Result Screen
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ResultScreen(bpm: dynamicBpm),
+        ),
+      ).then((_) {
+        if (widget.onScanComplete != null) {
+          widget.onScanComplete!();
+        }
+      });
     }
   }
 
