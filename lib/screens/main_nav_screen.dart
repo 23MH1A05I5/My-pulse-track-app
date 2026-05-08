@@ -58,7 +58,10 @@ class _MainNavScreenState extends State<MainNavScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: _selectedIndex == 0 
-          ? HomeScreen(key: ValueKey('home_$_refreshCounter'))
+          ? HomeScreen(
+              key: ValueKey('home_$_refreshCounter'),
+              onScanComplete: _handleScanComplete,
+            )
           : _selectedIndex == 1 
               ? HistoryScreen(key: ValueKey('history_$_refreshCounter'))
               : const ProfileScreen(),
@@ -77,6 +80,7 @@ class _MainNavScreenState extends State<MainNavScreen> {
           ],
         ),
         child: FloatingActionButton(
+          heroTag: 'main_nav_fab',
           onPressed: () => setState(() => _selectedIndex = 2),
           backgroundColor: _selectedIndex == 2 ? AppTheme.primaryRed : const Color(0xFF2A2E37),
           elevation: 0,

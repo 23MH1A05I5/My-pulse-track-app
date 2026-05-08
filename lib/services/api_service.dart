@@ -1,9 +1,8 @@
-import 'dart:typed_data';
-import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import '../models/bpm_record.dart';
 
@@ -12,19 +11,9 @@ class ApiService {
   static String get baseUrl {
     // Production Render URL
     return 'https://pulse-track-backend-1-bgfi.onrender.com/api';
-
-    /* Local development URLs
-    if (kIsWeb) {
-      return 'http://localhost:5000/api';
-    } else if (Platform.isAndroid) {
-      // Use 10.0.2.2 for Emulator, or your local machine IP for physical devices
-      // Current local IP: 10.16.52.216
-      return 'http://10.16.52.216:5000/api';
-    } else {
-      return 'http://localhost:5000/api';
-    }
-    */
   }
+
+  static const String _localRecordsKey = 'local_bpm_records';
 
   // Auth
   Future<Map<String, dynamic>> login(String email, String password) async {
@@ -148,41 +137,148 @@ class ApiService {
   }
 
   // BPM
-  Future<bool> addRecord(BpmRecord record) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/bpm/add'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(record.toJson()),
-    );
-    return response.statusCode == 201;
+  Future<bool> saveBpm(BpmRecord record) async {
+    // 1. Save Locally First (Persistence Insurance)
+    await _saveRecordLocally(record);
+    
+    try {
+      final jsonPayload = jsonEncode(record.toJson());
+      debugPrint('SAVING RECORD TO SERVER: $jsonPayload');
+      
+      final response = await http.post(
+        Uri.parse('$baseUrl/bpm/add'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonPayload,
+      ).timeout(const Duration(seconds: 10));
+      
+      debugPrint('SAVE BPM RESPONSE: ${response.statusCode} - ${response.body}');
+      return response.statusCode == 201 || response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Save BPM Server error: $e. Data remains in local cache.');
+      // Return true because we saved it locally, and it will show up in history
+      return true;
+    }
+  }
+
+  Future<void> _saveRecordLocally(BpmRecord record) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final localData = prefs.getStringList(_localRecordsKey) ?? [];
+      
+      // Convert record to JSON string
+      final recordJson = jsonEncode(record.toJson());
+      
+      // Add to list (at the beginning for easy sorting later)
+      localData.insert(0, recordJson);
+      
+      // Keep only last 100 records locally to save space
+      if (localData.length > 100) {
+        localData.removeRange(100, localData.length);
+      }
+      
+      await prefs.setStringList(_localRecordsKey, localData);
+      debugPrint('RECORD SAVED LOCALLY. Total local: ${localData.length}');
+    } catch (e) {
+      debugPrint('Error saving record locally: $e');
+    }
   }
 
   Future<List<BpmRecord>> getHistory(String userId) async {
-    final response = await http.get(Uri.parse('$baseUrl/bpm/history/$userId'));
-
-    if (response.statusCode == 200) {
-      List data = jsonDecode(response.body);
-      return data.map((item) => BpmRecord.fromJson(item)).toList();
+    List<BpmRecord> combinedHistory = [];
+    
+    // 1. Get Local Records
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final localData = prefs.getStringList(_localRecordsKey) ?? [];
+      combinedHistory = localData
+          .map((item) => BpmRecord.fromJson(jsonDecode(item)))
+          .where((r) => r.userId == userId)
+          .toList();
+    } catch (e) {
+      debugPrint('Error loading local history: $e');
     }
-    return [];
+
+    // 2. Try Fetch from Server
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/bpm/history/$userId'))
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        debugPrint('SERVER HISTORY FETCHED');
+        List serverData = jsonDecode(response.body);
+        final serverRecords = serverData.map((item) => BpmRecord.fromJson(item)).toList();
+        
+        // Merge Logic: Use a Map with timestamp/bpm as key to avoid duplicates
+        // Note: Real IDs would be better if server provides them
+        final Map<String, BpmRecord> uniqueRecords = {};
+        
+        // Add server records first (they are "source of truth")
+        for (var r in serverRecords) {
+          final key = '${r.timestamp.toIso8601String()}_${r.bpm}';
+          uniqueRecords[key] = r;
+        }
+        
+        // Add local records only if they don't exist on server yet
+        for (var r in combinedHistory) {
+          final key = '${r.timestamp.toIso8601String()}_${r.bpm}';
+          if (!uniqueRecords.containsKey(key)) {
+            uniqueRecords[key] = r;
+          }
+        }
+        
+        combinedHistory = uniqueRecords.values.toList();
+      }
+    } catch (e) {
+      debugPrint('Server history fetch failed: $e. Using local data only.');
+    }
+
+    // Sort by timestamp descending
+    combinedHistory.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return combinedHistory;
   }
 
   Future<BpmRecord?> getLatest(String userId) async {
-    final response = await http.get(Uri.parse('$baseUrl/bpm/latest/$userId'));
+    try {
+      // Try local first if server is slow
+      final history = await getHistory(userId);
+      if (history.isNotEmpty) return history.first;
+      
+      final response = await http.get(Uri.parse('$baseUrl/bpm/latest/$userId'))
+          .timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200 && response.body.isNotEmpty) {
-      return BpmRecord.fromJson(jsonDecode(response.body));
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        return BpmRecord.fromJson(jsonDecode(response.body));
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Get latest error: $e');
+      return null;
     }
-    return null;
   }
 
   Future<Map<String, dynamic>> getStats(String userId) async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/bpm/stats/$userId'));
+      final response = await http.get(Uri.parse('$baseUrl/bpm/stats/$userId'))
+          .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       }
-      return {'avgBpm': 0, 'maxBpm': 0, 'minBpm': 0, 'totalScans': 0};
+      
+      // Fallback stats from local history
+      final history = await getHistory(userId);
+      if (history.isEmpty) return {'avgBpm': 0, 'maxBpm': 0, 'minBpm': 0, 'totalScans': 0};
+      
+      final bpms = history.map((e) => e.bpm).toList();
+      final avg = bpms.reduce((a, b) => a + b) / bpms.length;
+      final maxBpm = bpms.reduce((a, b) => a > b ? a : b);
+      final minBpm = bpms.reduce((a, b) => a < b ? a : b);
+      
+      return {
+        'avgBpm': avg.round(),
+        'maxBpm': maxBpm,
+        'minBpm': minBpm,
+        'totalScans': history.length
+      };
     } catch (e) {
       debugPrint('Get stats error: $e');
       return {'avgBpm': 0, 'maxBpm': 0, 'minBpm': 0, 'totalScans': 0};

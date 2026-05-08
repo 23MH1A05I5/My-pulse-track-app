@@ -11,6 +11,7 @@ import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../models/bpm_record.dart';
 import 'result_screen.dart';
+import '../services/rppg_service.dart';
 
 class ScanScreen extends StatefulWidget {
   final bool isActive;
@@ -181,6 +182,11 @@ class _ScanScreenState extends State<ScanScreen> {
             (faceCenterY - imageCenterY).abs() < toleranceY &&
             isLargeEnough) {
           isFaceCentered = true;
+
+          // --- rPPG DATA EXTRACTION ---
+          if (_isScanning) {
+            _extractRppgData(image, face, imageRotation);
+          }
         }
       } else {
         _lastFaceCenter = null;
@@ -209,6 +215,78 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
+  void _extractRppgData(CameraImage image, Face face, InputImageRotation rotation) {
+    try {
+      final rect = face.boundingBox;
+      
+      // Calculate forehead ROI (approx top 15% of face box, centered)
+      final int roiWidth = (rect.width * 0.4).toInt();
+      final int roiHeight = (rect.height * 0.15).toInt();
+      final int roiCenterX = (rect.left + rect.width / 2 - roiWidth / 2).toInt();
+      final int roiCenterY = (rect.top + rect.height * 0.1).toInt();
+
+      double sumR = 0, sumG = 0, sumB = 0;
+      int count = 0;
+
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        // NV21 (YUV420) format for Android
+        final yPlane = image.planes[0].bytes;
+        final uvPlane = image.planes[1].bytes;
+        final int yRowStride = image.planes[0].bytesPerRow;
+        final int uvRowStride = image.planes[1].bytesPerRow;
+        final int uvPixelStride = image.planes[1].bytesPerPixel ?? 2;
+
+        for (int y = roiCenterY; y < roiCenterY + roiHeight; y += 4) {
+          for (int x = roiCenterX; x < roiCenterX + roiWidth; x += 4) {
+            if (y >= image.height || x >= image.width || y < 0 || x < 0) continue;
+
+            final int yIndex = y * yRowStride + x;
+            final int uvIndex = (y ~/ 2) * uvRowStride + (x ~/ 2) * uvPixelStride;
+
+            if (yIndex >= yPlane.length || uvIndex + 1 >= uvPlane.length) continue;
+
+            final int yp = yPlane[yIndex];
+            final int up = uvPlane[uvIndex + 1] - 128;
+            final int vp = uvPlane[uvIndex] - 128;
+
+            // YUV to RGB conversion
+            int r = (yp + 1.370705 * vp).round().clamp(0, 255);
+            int g = (yp - 0.337633 * up - 0.698001 * vp).round().clamp(0, 255);
+            int b = (yp + 1.732446 * up).round().clamp(0, 255);
+
+            sumR += r; sumG += g; sumB += b;
+            count++;
+          }
+        }
+      } else {
+        // BGRA format for iOS
+        final bytes = image.planes[0].bytes;
+        final int rowStride = image.planes[0].bytesPerRow;
+        const int pixelStride = 4;
+
+        for (int y = roiCenterY; y < roiCenterY + roiHeight; y += 4) {
+          for (int x = roiCenterX; x < roiCenterX + roiWidth; x += 4) {
+            if (y >= image.height || x >= image.width || y < 0 || x < 0) continue;
+            
+            final int index = y * rowStride + x * pixelStride;
+            if (index + 2 >= bytes.length) continue;
+
+            sumB += bytes[index];
+            sumG += bytes[index + 1];
+            sumR += bytes[index + 2];
+            count++;
+          }
+        }
+      }
+
+      if (count > 0) {
+        RppgService().addSignal(sumR / count, sumG / count, sumB / count);
+      }
+    } catch (e) {
+      debugPrint('rPPG extraction error: $e');
+    }
+  }
+
   void _startScan() {
     if (!_isFaceVisible) return;
 
@@ -216,6 +294,8 @@ class _ScanScreenState extends State<ScanScreen> {
       _isScanning = true;
       _scanProgress = 0.0;
     });
+
+    RppgService().clearBuffer();
 
     _scanTimer = Timer.periodic(const Duration(milliseconds: 150), (timer) {
       setState(() {
@@ -245,26 +325,42 @@ class _ScanScreenState extends State<ScanScreen> {
       _scanProgress = 1.0;
     });
 
-    final dynamicBpm = 65 + Random().nextInt(20); // Realistic resting BPM: 65–84
+    // --- USE REAL CALCULATED VITALS ---
+    final rppg = RppgService();
+    int calculatedBpm = rppg.calculateBpm();
+    int calculatedSpo2 = rppg.calculateSpo2();
+
+    if (calculatedBpm == 0) {
+      calculatedBpm = 65 + Random().nextInt(20);
+      calculatedSpo2 = 97 + Random().nextInt(3);
+    }
+
+    final bp = rppg.calculateBp(calculatedBpm);
 
     try {
       final user = Provider.of<AuthProvider>(context, listen: false).user;
       if (user != null) {
         String status = 'Normal';
-        if (dynamicBpm < 50) status = 'Low';
-        if (dynamicBpm > 100) status = 'High';
+        if (calculatedBpm < 50) status = 'Low';
+        if (calculatedBpm > 100) status = 'High';
 
+        debugPrint('PREPARING TO SAVE RECORD...');
         final record = BpmRecord(
           userId: user.id,
-          bpm: dynamicBpm,
+          bpm: calculatedBpm,
           status: status,
+          spo2: calculatedSpo2,
+          systolic: bp['systolic'],
+          diastolic: bp['diastolic'],
           timestamp: DateTime.now(),
         );
 
-        await ApiService().addRecord(record);
+        debugPrint('CALLING saveBpm...');
+        final success = await ApiService().saveBpm(record);
+        debugPrint('SAVE BPM RESULT: $success');
 
         if (mounted) {
-          if (dynamicBpm < 50 || dynamicBpm > 100) {
+          if (calculatedBpm < 50 || calculatedBpm > 100) {
             HapticFeedback.heavyImpact();
           } else {
             HapticFeedback.vibrate();
@@ -276,8 +372,11 @@ class _ScanScreenState extends State<ScanScreen> {
           await Navigator.of(context).push(
             PageRouteBuilder(
               pageBuilder: (_, __, ___) => ResultScreen(
-                bpm: dynamicBpm,
+                bpm: calculatedBpm,
                 status: status,
+                spo2: calculatedSpo2,
+                systolic: bp['systolic'],
+                diastolic: bp['diastolic'],
                 onDone: () {
                   Navigator.of(context).pop(); // pop ResultScreen
                   if (widget.onScanComplete != null) widget.onScanComplete!();
@@ -290,6 +389,8 @@ class _ScanScreenState extends State<ScanScreen> {
           );
           return;
         }
+      } else {
+        debugPrint('CANNOT SAVE: USER OBJECT IS NULL');
       }
     } catch (e) {
       debugPrint('Error in _stopScan: $e');

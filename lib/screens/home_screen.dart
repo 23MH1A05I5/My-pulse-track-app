@@ -13,7 +13,8 @@ import 'sleep_screen.dart';
 import 'ai_chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final VoidCallback? onScanComplete;
+  const HomeScreen({super.key, this.onScanComplete});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -112,12 +113,12 @@ class _HomeScreenState extends State<HomeScreen>
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            Colors.blueAccent.withOpacity(0.15),
-            Colors.purpleAccent.withOpacity(0.05),
+            Colors.blueAccent.withValues(alpha: 0.15),
+            Colors.purpleAccent.withValues(alpha: 0.05),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+        border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -234,6 +235,7 @@ class _HomeScreenState extends State<HomeScreen>
     return Scaffold(
       backgroundColor: const Color(0xFF0F1216),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'ai_chat_fab',
         onPressed: () {
           Navigator.push(
             context,
@@ -682,7 +684,7 @@ class _HomeScreenState extends State<HomeScreen>
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: iconColor.withOpacity(0.1),
+                color: iconColor.withValues(alpha: 0.1),
               ),
               child: Icon(icon, color: iconColor, size: 20),
             ),
@@ -719,7 +721,7 @@ class _HomeScreenState extends State<HomeScreen>
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.primaryRed.withOpacity(0.3),
+            color: AppTheme.primaryRed.withValues(alpha: 0.3),
             blurRadius: 10,
             offset: const Offset(0, 5),
           ),
@@ -760,6 +762,8 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ).then((_) async {
               await _fetchData(); // Refresh once back
+              widget.onScanComplete?.call(); // Trigger global refresh for history tab
+              if (!mounted) return;
               final newStreak =
                   Provider.of<AuthProvider>(
                     context,
@@ -836,12 +840,14 @@ class _HomeScreenState extends State<HomeScreen>
 
     // AI Suggestion
     String suggestion = "Your heart rate is stable. Keep up the good work!";
-    if (bpm > 90)
+    if (bpm > 90) {
       suggestion =
           "Your heart rate is high. Try a breathing exercise to relax.";
-    if (bpm < 60)
+    }
+    if (bpm < 60) {
       suggestion =
           "Your resting heart rate is excellent, indicating great fitness.";
+    }
 
     return Container(
       width: double.infinity,
@@ -850,7 +856,7 @@ class _HomeScreenState extends State<HomeScreen>
         color: const Color(0xFF161A22),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppTheme.primaryRed.withOpacity(0.3),
+          color: AppTheme.primaryRed.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -976,6 +982,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ).then((_) async {
                 await _fetchData();
+                if (!mounted) return;
                 final newStreak =
                     Provider.of<AuthProvider>(
                       context,

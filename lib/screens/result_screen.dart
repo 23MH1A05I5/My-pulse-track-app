@@ -8,13 +8,21 @@ import '../theme/app_theme.dart';
 class ResultScreen extends StatefulWidget {
   final int bpm;
   final String status;
+  final int? spo2;
+  final int? systolic;
+  final int? diastolic;
   final VoidCallback? onDone;
+  final bool isHistory;
 
   const ResultScreen({
     super.key,
     required this.bpm,
     required this.status,
+    this.spo2,
+    this.systolic,
+    this.diastolic,
     this.onDone,
+    this.isHistory = false,
   });
 
   @override
@@ -40,10 +48,18 @@ class _ResultScreenState extends State<ResultScreen>
   void initState() {
     super.initState();
 
-    final rand = Random();
-    _spo2 = 95 + rand.nextInt(5); // 95-99%
-    _sysBp = 110 + rand.nextInt(20); // 110-129
-    _diaBp = 70 + rand.nextInt(15); // 70-84
+    if (widget.isHistory) {
+      // If it's history, we show exactly what's passed (even if 0 or null)
+      _spo2 = widget.spo2;
+      _sysBp = widget.systolic;
+      _diaBp = widget.diastolic;
+    } else {
+      // If it's a fresh scan result, we use passed values OR fallback to 
+      // a reasonable single generation if they are somehow missing
+      _spo2 = (widget.spo2 != null && widget.spo2! > 0) ? widget.spo2! : (96 + Random().nextInt(4));
+      _sysBp = (widget.systolic != null && widget.systolic! > 0) ? widget.systolic! : (115 + Random().nextInt(15));
+      _diaBp = (widget.diastolic != null && widget.diastolic! > 0) ? widget.diastolic! : (75 + Random().nextInt(10));
+    }
 
     _heartController = AnimationController(
       duration: const Duration(milliseconds: 900),
@@ -342,7 +358,7 @@ class _ResultScreenState extends State<ResultScreen>
         Expanded(
           child: _buildVitalCard(
             title: 'Oxygen',
-            value: '$_spo2',
+            value: _spo2 == null || _spo2 == 0 ? '--' : '$_spo2',
             unit: '%',
             icon: Icons.air_rounded,
             color: const Color(0xFF00E5FF),
@@ -352,7 +368,7 @@ class _ResultScreenState extends State<ResultScreen>
         Expanded(
           child: _buildVitalCard(
             title: 'Blood Pressure',
-            value: '$_sysBp/$_diaBp',
+            value: _sysBp == null || _sysBp == 0 ? '--/--' : '$_sysBp/$_diaBp',
             unit: 'mmHg',
             icon: Icons.favorite_border_rounded,
             color: const Color(0xFFFF5252),

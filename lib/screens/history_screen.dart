@@ -124,7 +124,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     decoration: BoxDecoration(
-                      color: sel ? c.withOpacity(0.2) : const Color(0xFF1E2430),
+                      color: sel ? c.withValues(alpha: 0.2) : const Color(0xFF1E2430),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: sel ? c : Colors.transparent, width: 1.5),
                     ),
@@ -149,7 +149,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         title: const Text('History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24)),
         backgroundColor: Colors.transparent, elevation: 0,
         actions: [
-          IconButton(icon: Icon(Icons.picture_as_pdf, color: AppTheme.primaryRed.withOpacity(0.8)), onPressed: _generatePdf),
+          IconButton(icon: Icon(Icons.picture_as_pdf, color: AppTheme.primaryRed.withValues(alpha: 0.8)), onPressed: _generatePdf),
           const SizedBox(width: 8),
         ],
       ),
@@ -191,7 +191,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
-              gradient: sel ? LinearGradient(colors: [AppTheme.primaryRed, AppTheme.primaryRed.withOpacity(0.6)]) : null,
+              gradient: sel ? LinearGradient(colors: [AppTheme.primaryRed, AppTheme.primaryRed.withValues(alpha: 0.6)]) : null,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(['Day', 'Week', 'Month'][i], textAlign: TextAlign.center,
@@ -249,7 +249,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     double maxX = 24;
 
     if (_selectedTab == 0) {
-      for (final r in sorted) spots.add(FlSpot(r.timestamp.hour + r.timestamp.minute / 60.0, r.bpm.toDouble()));
+      for (final r in sorted) {
+        spots.add(FlSpot(r.timestamp.hour + r.timestamp.minute / 60.0, r.bpm.toDouble()));
+      }
       labels = ['12AM', '6AM', '12PM', '6PM', '12AM'];
       maxX = 24;
     } else if (_selectedTab == 1) {
@@ -279,15 +281,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (spots.isEmpty) return const Center(child: Text('No data', style: TextStyle(color: Colors.grey)));
     if (spots.length == 1) spots = [FlSpot(spots[0].x > 0 ? spots[0].x - 0.5 : 0, spots[0].y), spots[0], FlSpot(spots[0].x + 0.5, spots[0].y)];
 
-    final maxY = spots.map((s) => s.y).reduce(max);
-    final minY = spots.map((s) => s.y).reduce(min);
+    final maxYVal = spots.map((s) => s.y).reduce(max);
+    final minYVal = spots.map((s) => s.y).reduce(min);
+    final minY = (minYVal - 10).clamp(0.0, 200.0);
+    final maxY = (maxYVal + 10).clamp(40.0, 220.0);
 
     return LineChart(LineChartData(
-      gridData: FlGridData(show: true, drawVerticalLine: false, horizontalInterval: 30, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)),
+      gridData: FlGridData(show: true, drawVerticalLine: false, horizontalInterval: 20, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withValues(alpha: 0.1), strokeWidth: 1)),
       titlesData: FlTitlesData(
         rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, interval: 30, reservedSize: 30,
+        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, interval: 20, reservedSize: 30,
           getTitlesWidget: (v, m) => Padding(padding: const EdgeInsets.only(right: 8), child: Text('${v.toInt()}', style: const TextStyle(color: Colors.grey, fontSize: 10))))),
         bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, interval: _selectedTab == 0 ? 6 : 1,
           getTitlesWidget: (v, m) {
@@ -296,15 +300,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
           })),
       ),
       borderData: FlBorderData(show: false),
-      minX: 0, maxX: maxX, minY: 40, maxY: 150,
+      minX: 0, maxX: maxX, minY: minY, maxY: maxY,
       lineBarsData: [LineChartBarData(
         spots: spots, isCurved: true, color: AppTheme.primaryRed, barWidth: 3, isStrokeCapRound: true,
-        dotData: FlDotData(show: true, checkToShowDot: (s, _) => s.y == maxY || s.y == minY,
+        dotData: FlDotData(show: true, checkToShowDot: (s, _) => s.y == maxYVal || s.y == minYVal,
           getDotPainter: (s, p, b, i) => FlDotCirclePainter(radius: 4, color: AppTheme.backgroundColor, strokeWidth: 2, strokeColor: AppTheme.primaryRed)),
         belowBarData: BarAreaData(show: true, gradient: LinearGradient(
-          colors: [AppTheme.primaryRed.withOpacity(0.3), AppTheme.primaryRed.withOpacity(0.0)],
+          colors: [AppTheme.primaryRed.withValues(alpha: 0.3), AppTheme.primaryRed.withValues(alpha: 0.0)],
           begin: Alignment.topCenter, end: Alignment.bottomCenter)),
       )],
+
       lineTouchData: LineTouchData(
         touchTooltipData: LineTouchTooltipData(
           getTooltipColor: (_) => const Color(0xFF1E2430), tooltipRoundedRadius: 8,
@@ -330,7 +335,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       decoration: BoxDecoration(color: const Color(0xFF161A22), borderRadius: BorderRadius.circular(20)),
       child: Column(children: [
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle), child: Icon(icon, color: color, size: 16)),
+          Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle), child: Icon(icon, color: color, size: 16)),
           const SizedBox(width: 8),
           Text(val, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
           const Text(' BPM', style: TextStyle(color: Colors.grey, fontSize: 10)),
@@ -347,9 +352,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final color = d['color'] as Color;
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: const Color(0xFF161A22), borderRadius: BorderRadius.circular(16), border: Border.all(color: color.withOpacity(0.3))),
+      decoration: BoxDecoration(color: const Color(0xFF161A22), borderRadius: BorderRadius.circular(16), border: Border.all(color: color.withValues(alpha: 0.3))),
       child: Row(children: [
-        Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle), child: Icon(d['icon'] as IconData, color: color, size: 24)),
+        Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle), child: Icon(d['icon'] as IconData, color: color, size: 24)),
         const SizedBox(width: 16),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Weekly Insights', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
@@ -372,7 +377,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             child: Container(
               margin: const EdgeInsets.only(right: 8),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(color: AppTheme.primaryRed.withOpacity(0.15), borderRadius: BorderRadius.circular(12), border: Border.all(color: AppTheme.primaryRed.withOpacity(0.4))),
+              decoration: BoxDecoration(color: AppTheme.primaryRed.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(12), border: Border.all(color: AppTheme.primaryRed.withValues(alpha: 0.4))),
               child: Row(children: [
                 Text(_filterStatus, style: const TextStyle(color: AppTheme.primaryRed, fontSize: 11)),
                 const SizedBox(width: 4),
@@ -386,7 +391,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: const Color(0xFF161A22), borderRadius: BorderRadius.circular(12),
-              border: _filterStatus != 'All' ? Border.all(color: AppTheme.primaryRed.withOpacity(0.5)) : null,
+              border: _filterStatus != 'All' ? Border.all(color: AppTheme.primaryRed.withValues(alpha: 0.5)) : null,
             ),
             child: Icon(Icons.filter_list, color: _filterStatus != 'All' ? AppTheme.primaryRed : Colors.white, size: 18),
           ),
@@ -409,7 +414,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
         return GestureDetector(
           onTap: () => Navigator.push(context, PageRouteBuilder(
-            pageBuilder: (_, __, ___) => ResultScreen(bpm: r.bpm, status: r.status,),
+            pageBuilder: (_, __, ___) => ResultScreen(
+              bpm: r.bpm,
+              status: r.status,
+              spo2: r.spo2,
+              systolic: r.systolic,
+              diastolic: r.diastolic,
+              isHistory: true,
+            ),
             transitionsBuilder: (_, anim, __, child) => FadeTransition(opacity: anim, child: child),
             transitionDuration: const Duration(milliseconds: 400),
           )),
@@ -420,28 +432,50 @@ class _HistoryScreenState extends State<HistoryScreen> {
             child: Row(children: [
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: (isDay ? Colors.orange : Colors.deepPurple).withOpacity(0.1), shape: BoxShape.circle),
-                child: Icon(isDay ? Icons.wb_sunny_outlined : Icons.nightlight_round, color: isDay ? Colors.orange : Colors.deepPurpleAccent),
+                decoration: BoxDecoration(color: (isDay ? Colors.orange : Colors.deepPurple).withValues(alpha: 0.1), shape: BoxShape.circle),
+                child: Icon(isDay ? Icons.wb_sunny_outlined : Icons.nightlight_round, color: isDay ? Colors.orange : Colors.deepPurpleAccent, size: 20),
               ),
-              const SizedBox(width: 16),
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(DateFormat('hh:mm a').format(r.timestamp), style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(DateFormat('MMM d, yyyy').format(r.timestamp), style: const TextStyle(color: Colors.grey, fontSize: 10)),
-              ]),
-              const Spacer(),
-              Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-                Text('${r.bpm}', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                const Text(' BPM', style: TextStyle(color: Colors.grey, fontSize: 10)),
-              ]),
               const SizedBox(width: 12),
-              Container(
-                width: 60, padding: const EdgeInsets.symmetric(vertical: 4),
-                decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-                child: Center(child: Text(r.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold))),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(DateFormat('hh:mm a').format(r.timestamp), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Text(DateFormat('MMM d').format(r.timestamp), style: const TextStyle(color: Colors.grey, fontSize: 10)),
+                      const SizedBox(width: 8),
+                      if (r.spo2 != null) ...[
+                        Icon(Icons.air_rounded, color: Colors.cyanAccent.withValues(alpha: 0.6), size: 10),
+                        const SizedBox(width: 2),
+                        Text('${r.spo2}%', style: const TextStyle(color: Colors.cyanAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ],
+                      if (r.systolic != null) ...[
+                        const SizedBox(width: 8),
+                        Icon(Icons.favorite_outline, color: Colors.redAccent.withValues(alpha: 0.6), size: 10),
+                        const SizedBox(width: 2),
+                        Text('${r.systolic}/${r.diastolic}', style: const TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ],
+                    ],
+                  ),
+                ]),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+                    Text('${r.bpm}', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                    const Text(' BPM', style: TextStyle(color: Colors.grey, fontSize: 10)),
+                  ]),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
+                    child: Text(r.status, style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.bold)),
+                  ),
+                ],
               ),
               const SizedBox(width: 8),
-              const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+              const Icon(Icons.chevron_right, color: Colors.white24, size: 18),
             ]),
           ),
         );

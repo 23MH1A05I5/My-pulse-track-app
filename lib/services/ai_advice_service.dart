@@ -19,143 +19,289 @@ class AiAdviceResult {
 }
 
 class AiAdviceService {
-  // ✅ Replace with your free Gemini API key from https://aistudio.google.com/
-  static const String _apiKey = 'AIzaSyBsxpbqaSZLVCUJTGlrxukWoOtCSWVF-VI';
-  static const String _endpoint =
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+  // ✅ Get your free API key from https://aistudio.google.com/
+  // Current key is provided by the user.
+  static const String _apiKey = 'AIzaSyCbWOd1G7DgxWiU6B_SAo3U_DnNSAsc1lM';
 
+  // Model priority list — tries each in order if the previous fails/is rate-limited
+  static const List<String> _modelFallbacks = [
+    'gemini-1.5-flash',
+    'gemini-1.5-pro',
+    'gemini-2.0-flash-exp',
+    'gemini-2.0-flash-lite-preview-02-05',
+    'gemini-1.5-flash-8b',
+  ];
+
+  static const String _baseUrl =
+      'https://generativelanguage.googleapis.com/v1beta/models';
+
+  static const String _systemInstruction =
+      'You are a helpful and knowledgeable AI health assistant for the PulseTrack app. '
+      'Your job is to help users understand their heart health readings. '
+      'Keep answers concise (under 100 words), warm, and friendly. '
+      'Never provide a medical diagnosis. Always recommend consulting a doctor for medical concerns. '
+      'If the user shares their vitals (BPM, SpO2, blood pressure), give personalised feedback.';
+
+  // ── Chat with AI ─────────────────────────────────────────────────────────────
+  Future<String> chatWithAi(
+      String message, List<Map<String, String>> history) async {
+    
+    debugPrint('CHATBOT: Sending message: $message');
+
+    if (_apiKey.isEmpty || _apiKey == 'YOUR_GEMINI_API_KEY_HERE') {
+      debugPrint('CHATBOT ERROR: API Key is missing or default.');
+      return _offlineChat(message);
+    }
+
+    // Build conversation contents, ensuring we start with a user message
+    final contents = <Map<String, dynamic>>[];
+    bool seenFirstUser = false;
+
+    for (final msg in history) {
+      final role = (msg['role'] == 'user' || msg['role'] == 'client') ? 'user' : 'model';
+      final text = (msg['text'] ?? '').trim();
+      if (text.isEmpty) continue;
+
+      // Skip leading model messages (Gemini API needs user first)
+      if (!seenFirstUser && role == 'model') continue;
+      seenFirstUser = true;
+
+      contents.add({
+        'role': role,
+        'parts': [
+          {'text': text}
+        ]
+      });
+    }
+
+    // Add current message if not already there
+    bool alreadyIncluded = false;
+    if (contents.isNotEmpty) {
+      final lastPart = (contents.last['parts'] as List).first;
+      if (lastPart['text'] == message && contents.last['role'] == 'user') {
+        alreadyIncluded = true;
+      }
+    }
+
+    if (!alreadyIncluded) {
+      contents.add({
+        'role': 'user',
+        'parts': [
+          {'text': message}
+        ]
+      });
+    }
+
+    // Try each model in fallback order
+    for (final model in _modelFallbacks) {
+      try {
+        final url = Uri.parse('$_baseUrl/$model:generateContent?key=$_apiKey');
+        final body = jsonEncode({
+          'system_instruction': {
+            'parts': [
+              {'text': _systemInstruction}
+            ]
+          },
+          'contents': contents,
+          'generationConfig': {
+            'temperature': 0.7,
+            'maxOutputTokens': 512,
+            'topP': 0.95,
+          },
+        });
+
+        debugPrint('CHATBOT: Calling Gemini API ($model)...');
+        final response = await http
+            .post(
+              url,
+              headers: {'Content-Type': 'application/json'},
+              body: body,
+            )
+            .timeout(const Duration(seconds: 15));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          final candidates = data['candidates'] as List?;
+          if (candidates != null && candidates.isNotEmpty) {
+            final candidate = candidates[0];
+            if (candidate['content'] != null && candidate['content']['parts'] != null) {
+              final parts = candidate['content']['parts'] as List;
+              if (parts.isNotEmpty) {
+                final aiText = (parts[0]['text'] as String).trim();
+                debugPrint('CHATBOT SUCCESS: Received response from $model');
+                return aiText;
+              }
+            }
+          }
+          debugPrint('CHATBOT ERROR: Empty response from $model');
+        } else if (response.statusCode == 429) {
+          debugPrint('CHATBOT: Rate limited on $model, trying next...');
+          continue;
+        } else if (response.statusCode == 400) {
+          debugPrint('CHATBOT ERROR 400: ${response.body}');
+          // Usually a format error in contents
+          break;
+        } else {
+          debugPrint('CHATBOT ERROR ${response.statusCode}: ${response.body}');
+        }
+      } catch (e) {
+        debugPrint('CHATBOT EXCEPTION ($model): $e');
+      }
+    }
+
+    // All models failed or exception occurred
+    debugPrint('CHATBOT: All models failed. Falling back to offline mode.');
+    return _offlineChat(message);
+  }
+
+  // ── Get Advice (for Result Screen) ───────────────────────────────────────────
   Future<AiAdviceResult> getAdvice({
     required int bpm,
     required String status,
   }) async {
-    if (_apiKey != 'YOUR_GEMINI_API_KEY_HERE') {
-      try {
-        final result = await _callGemini(bpm: bpm, status: status);
-        if (result != null) return result;
-      } catch (e) {
-        debugPrint('Gemini API error: $e');
+    if (_apiKey.isNotEmpty && _apiKey != 'YOUR_GEMINI_API_KEY_HERE') {
+      for (final model in _modelFallbacks) {
+        try {
+          final result = await _callGeminiAdvice(
+              model: model, bpm: bpm, status: status);
+          if (result != null) return result;
+        } catch (e) {
+          debugPrint('[$model] Advice error: $e');
+        }
       }
     }
     return _getFallback(bpm: bpm);
   }
 
-  Future<String> chatWithAi(String message, List<Map<String, String>> history) async {
-    if (_apiKey == 'YOUR_GEMINI_API_KEY_HERE') {
-      return "I'm currently running in offline mode. I can only provide basic scan advice right now!";
-    }
+  // ── Internal: call Gemini for structured advice ───────────────────────────────
+  Future<AiAdviceResult?> _callGeminiAdvice({
+    required String model,
+    required int bpm,
+    required String status,
+  }) async {
+    final hour = DateTime.now().hour;
+    final timeOfDay = hour < 12
+        ? 'morning'
+        : hour < 17
+            ? 'afternoon'
+            : hour < 21
+                ? 'evening'
+                : 'night';
 
+    final prompt = '''A PulseTrack user just completed a heart rate scan.
+- Heart Rate: $bpm BPM
+- Status: $status
+- Time of day: $timeOfDay
+
+Respond ONLY with valid JSON (no markdown, no extra text):
+{
+  "insight": "A warm, 2-3 sentence personalised insight about this reading",
+  "tips": ["tip 1", "tip 2", "tip 3"],
+  "watchFor": ["warning sign 1", "warning sign 2"]
+}''';
+
+    final url = Uri.parse('$_baseUrl/$model:generateContent?key=$_apiKey');
     try {
-      final contents = <Map<String, dynamic>>[];
-      
-      const systemContext = "You are a helpful and knowledgeable AI health assistant for the PulseTrack app. "
-          "Answer briefly and safely. If asked for medical diagnosis, remind them you are an AI and they should see a doctor.";
-
-      // Build contents from history
-      for (int i = 0; i < history.length; i++) {
-        final msg = history[i];
-        String text = msg['text'] ?? '';
-        
-        // Prepend system context to the very first user message for better grounding
-        if (i == 0 && msg['role'] == 'user') {
-          text = "$systemContext\n\n$text";
-        } else if (i == 0 && msg['role'] != 'user' && history.length > 1 && history[1]['role'] == 'user') {
-            // If first msg is AI (intro), skip system context there, will add to next user msg
-        }
-
-        contents.add({
-          'role': msg['role'] == 'user' ? 'user' : 'model',
-          'parts': [{'text': text}]
-        });
-      }
-
-      // If history already contains the message (added in UI state), we don't need to add it again
-      // The ai_chat_screen adds it before calling this.
-      if (contents.isEmpty || contents.last['parts'][0]['text'] != message) {
-         contents.add({
-          'role': 'user',
-          'parts': [{'text': contents.isEmpty ? "$systemContext\n\n$message" : message}]
-        });
-      }
-
       final response = await http
           .post(
-            Uri.parse('$_endpoint?key=$_apiKey'),
+            url,
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({
-              'contents': contents,
-              'generationConfig': {'temperature': 0.7, 'maxOutputTokens': 400},
+              'system_instruction': {
+                'parts': [
+                  {'text': _systemInstruction}
+                ]
+              },
+              'contents': [
+                {
+                  'parts': [
+                    {'text': prompt}
+                  ]
+                }
+              ],
+              'generationConfig': {
+                'temperature': 0.6,
+                'maxOutputTokens': 400,
+              },
             }),
           )
           .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['candidates'][0]['content']['parts'][0]['text'] as String;
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final text =
+            data['candidates'][0]['content']['parts'][0]['text'] as String;
+        final clean =
+            text.replaceAll('```json', '').replaceAll('```', '').trim();
+        final json = jsonDecode(clean) as Map<String, dynamic>;
+        return AiAdviceResult(
+          insight: json['insight'] as String,
+          tips: List<String>.from(json['tips'] as List),
+          watchFor: List<String>.from(json['watchFor'] as List),
+          statusLabel: _statusLabel(bpm),
+          fromAi: true,
+        );
       }
-      
-      debugPrint('Gemini Error ${response.statusCode}: ${response.body}');
-      return "I'm having trouble connecting to the AI server. Please try again in a moment.";
     } catch (e) {
-      debugPrint('Gemini Chat API error: $e');
-      return "Sorry, I couldn't process that due to a network error. Check your connection!";
+      debugPrint('Advice Exception ($model): $e');
     }
-  }
 
-  Future<AiAdviceResult?> _callGemini({
-    required int bpm,
-    required String status,
-  }) async {
-    final hour = DateTime.now().hour;
-    final timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : hour < 21 ? 'evening' : 'night';
-
-    final prompt = '''You are a friendly AI health assistant in the PulseTrack wellness app.
-A user just completed a contactless heart rate scan:
-- Heart Rate: $bpm BPM
-- Status: $status
-- Time: $timeOfDay
-
-Respond ONLY with a valid JSON object (no markdown, no extra text):
-{
-  "insight": "2-3 sentence personalized insight about this heart rate",
-  "tips": ["practical tip 1", "tip 2", "tip 3"],
-  "watchFor": ["warning sign 1", "warning sign 2"]
-}
-
-Be warm, encouraging, and time-appropriate. Keep insight under 60 words.''';
-
-    final response = await http
-        .post(
-          Uri.parse('$_endpoint?key=$_apiKey'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'contents': [
-              {
-                'parts': [
-                  {'text': prompt}
-                ]
-              }
-            ],
-            'generationConfig': {'temperature': 0.7, 'maxOutputTokens': 350},
-          }),
-        )
-        .timeout(const Duration(seconds: 12));
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final text = data['candidates'][0]['content']['parts'][0]['text'] as String;
-      final clean = text.replaceAll('```json', '').replaceAll('```', '').trim();
-      final json = jsonDecode(clean);
-      return AiAdviceResult(
-        insight: json['insight'],
-        tips: List<String>.from(json['tips']),
-        watchFor: List<String>.from(json['watchFor']),
-        statusLabel: _statusLabel(bpm),
-        fromAi: true,
-      );
-    }
     return null;
   }
 
+  // ── Intelligent offline chat ──────────────────────────────────────────────────
+  String _offlineChat(String message) {
+    final lower = message.toLowerCase();
+
+    if (lower.contains('bpm') ||
+        lower.contains('heart rate') ||
+        lower.contains('pulse')) {
+      return "A normal resting heart rate for adults is 60–100 BPM. Athletes can have rates as low as 40 BPM. Anything consistently above 100 BPM at rest (tachycardia) or below 60 BPM (bradycardia) should be discussed with a doctor.";
+    }
+
+    if (lower.contains('spo2') ||
+        lower.contains('oxygen') ||
+        lower.contains('saturation')) {
+      return "Blood oxygen saturation (SpO2) is normally 95–100%. Readings below 92% may indicate low oxygen levels and warrant medical attention. PulseTrack estimates SpO2 using the color variations in your skin captured by the camera.";
+    }
+
+    if (lower.contains('blood pressure') ||
+        lower.contains('systolic') ||
+        lower.contains('diastolic')) {
+      return "Normal blood pressure is below 120/80 mmHg. Stage 1 hypertension is 130–139/80–89 mmHg, and Stage 2 is 140+/90+ mmHg. PulseTrack provides estimated BP readings — for accurate diagnosis, always use a certified blood pressure cuff.";
+    }
+
+    if (lower.contains('stress') || lower.contains('anxiety')) {
+      return "Stress and anxiety can temporarily raise your heart rate and blood pressure. Try box breathing: inhale for 4 seconds, hold for 4, exhale for 4, hold for 4. Repeat 4–5 times. Regular deep breathing exercises can lower your resting heart rate over time.";
+    }
+
+    if (lower.contains('exercise') || lower.contains('workout')) {
+      return "During exercise, your heart rate increases to deliver more oxygen to your muscles. Your target heart rate zone is typically 50–85% of your maximum heart rate (roughly 220 minus your age). PulseTrack is best used for resting heart rate measurements.";
+    }
+
+    if (lower.contains('sleep') || lower.contains('resting')) {
+      return "Your resting heart rate is best measured in the morning after waking up, before getting out of bed. Consistent tracking over time gives you the most meaningful data about your cardiovascular health trends.";
+    }
+
+    if (lower.contains('high') || lower.contains('elevated')) {
+      return "A temporarily elevated heart rate can be caused by stress, caffeine, dehydration, or recent physical activity. Try sitting quietly for 5 minutes and re-scanning. If it stays consistently high at rest, consult a healthcare professional.";
+    }
+
+    if (lower.contains('low') || lower.contains('bradycardia')) {
+      return "A low resting heart rate below 60 BPM is common in athletes and very fit individuals. However, if it's accompanied by dizziness, fatigue, or shortness of breath, you should consult a doctor as it may indicate bradycardia.";
+    }
+
+    if (lower.contains('hello') ||
+        lower.contains('hi') ||
+        lower.contains('hey')) {
+      return "Hello! I'm your PulseTrack AI Health Assistant. I can help you understand your heart rate, SpO2, and blood pressure readings. Ask me anything about your health data! 💓";
+    }
+
+    // Generic fallback
+    return "I'm currently in offline mode due to connectivity issues or API limits. I can still answer questions about heart rate (BPM), blood oxygen (SpO2), blood pressure, stress, exercise, and sleep. What would you like to know?";
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────────
   String _statusLabel(int bpm) {
     if (bpm < 50) return 'Alert';
     if (bpm < 60) return 'Low';
@@ -177,14 +323,13 @@ Be warm, encouraging, and time-appropriate. Keep insight under 60 words.''';
         watchFor: [
           'Dizziness or fainting spells',
           'Shortness of breath at rest',
-          'Chest pain or palpitations',
         ],
         statusLabel: 'Alert',
       );
     } else if (bpm < 60) {
       return AiAdviceResult(
         insight:
-            'Your heart rate of $bpm BPM is on the lower end of normal. Athletes and very fit individuals often have heart rates in this range — it can be a sign of great cardiovascular health!',
+            'Your heart rate of $bpm BPM is on the lower end. Athletes and very fit individuals often have rates in this range — a great sign of cardiovascular fitness!',
         tips: [
           'Stay well hydrated throughout the day',
           'Light stretching helps maintain good circulation',
@@ -199,7 +344,7 @@ Be warm, encouraging, and time-appropriate. Keep insight under 60 words.''';
     } else if (bpm <= 80) {
       return AiAdviceResult(
         insight:
-            'Excellent! Your heart rate of $bpm BPM is in the optimal zone. Your cardiovascular system is working efficiently — a strong indicator of great heart health. Keep it up!',
+            'Excellent! Your heart rate of $bpm BPM is in the optimal zone. Your cardiovascular system is working efficiently — keep it up!',
         tips: [
           'Keep up your current activity level — it\'s working!',
           'Drink 8 glasses of water daily to stay hydrated',
@@ -238,7 +383,6 @@ Be warm, encouraging, and time-appropriate. Keep insight under 60 words.''';
         watchFor: [
           'Chest pain or pressure — seek help immediately',
           'Shortness of breath at rest',
-          'Heart rate not returning to normal after 30 min of rest',
         ],
         statusLabel: 'Elevated',
       );

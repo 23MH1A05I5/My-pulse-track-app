@@ -91,7 +91,7 @@ class PdfGenerator {
   }
 
   static pw.Widget _buildTable(List<BpmRecord> records) {
-    final headers = ['Date', 'Time', 'BPM', 'Status'];
+    final headers = ['Date', 'Time', 'BPM', 'Status', 'SpO2', 'BP'];
 
     final data = records.map((record) {
       return [
@@ -99,6 +99,10 @@ class PdfGenerator {
         DateFormat('hh:mm a').format(record.timestamp),
         '${record.bpm}',
         record.status,
+        record.spo2 != null ? '${record.spo2}%' : '--',
+        (record.systolic != null && record.systolic! > 0) 
+            ? '${record.systolic}/${record.diastolic}' 
+            : '--',
       ];
     }).toList();
 
@@ -114,6 +118,8 @@ class PdfGenerator {
         1: pw.Alignment.centerLeft,
         2: pw.Alignment.center,
         3: pw.Alignment.center,
+        4: pw.Alignment.center,
+        5: pw.Alignment.center,
       },
     );
   }
