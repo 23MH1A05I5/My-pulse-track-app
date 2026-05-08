@@ -25,6 +25,12 @@ class AuthProvider with ChangeNotifier {
         return {'requiresTwoFactor': true, 'email': response['email']};
       }
 
+      if (response.containsKey('requiresVerification') && response['requiresVerification'] == true) {
+        // Auto-send OTP for verification
+        await _apiService.sendOTP(response['email'] ?? email);
+        return {'requiresVerification': true, 'email': response['email'] ?? email};
+      }
+
       _user = UserModel.fromJson(response);
       await _saveUser(_user!);
       notifyListeners();

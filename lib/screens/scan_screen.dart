@@ -79,7 +79,8 @@ class _ScanScreenState extends State<ScanScreen> {
       if (!kIsWeb && widget.isActive) {
         _controller!.startImageStream(_processCameraImage);
       } else if (kIsWeb) {
-        // Fallback for web testing (always assume face is visible)
+        // On web, face detection is not available
+        // Camera preview works but image stream processing doesn't
         _isFaceVisible = true;
       }
 
@@ -90,6 +91,13 @@ class _ScanScreenState extends State<ScanScreen> {
       }
     } catch (e) {
       debugPrint('Camera error: $e');
+      // If camera fails entirely (e.g. no permission on web), still allow UI
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+          if (kIsWeb) _isFaceVisible = true;
+        });
+      }
     }
   }
 
@@ -288,7 +296,7 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   void _startScan() {
-    if (!_isFaceVisible) return;
+    if (!_isFaceVisible || _isFinished) return;
 
     setState(() {
       _isScanning = true;
@@ -298,6 +306,10 @@ class _ScanScreenState extends State<ScanScreen> {
     RppgService().clearBuffer();
 
     _scanTimer = Timer.periodic(const Duration(milliseconds: 150), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       setState(() {
         _scanProgress += 0.01;
       });
@@ -404,7 +416,11 @@ class _ScanScreenState extends State<ScanScreen> {
 
   @override
   void dispose() {
-    _controller?.stopImageStream();
+    if (!kIsWeb) {
+      try {
+        _controller?.stopImageStream();
+      } catch (_) {}
+    }
     _controller?.dispose();
     _faceDetector.close();
     _scanTimer?.cancel();
@@ -488,10 +504,12 @@ class _ScanScreenState extends State<ScanScreen> {
               children: [
                 const Icon(Icons.favorite_border, color: AppTheme.primaryRed, size: 24),
                 const SizedBox(width: 16),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Make sure you are in a well-lit area and keep your face steady',
-                    style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.4),
+                    kIsWeb
+                        ? 'Position your face in the frame and tap Start Scan'
+                        : 'Make sure you are in a well-lit area and keep your face steady',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.4),
                   ),
                 ),
               ],
@@ -508,7 +526,7 @@ class _ScanScreenState extends State<ScanScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (!_isFaceStable && _isFaceVisible) ...[
+                if (!_isFaceStable && _isFaceVisible && !kIsWeb) ...[
                    const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 32),
                    const SizedBox(height: 8),
                    const Text('Hold still! Too much movement.', style: TextStyle(color: Colors.orangeAccent, fontSize: 18, fontWeight: FontWeight.bold)),
@@ -549,6 +567,49 @@ class _ScanScreenState extends State<ScanScreen> {
             ),
           ),
         ),
+
+        // Web: Manual Start Scan Button
+        if (kIsWeb && !_isScanning && !_isFinished && !_isSaving)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 200),
+              child: GestureDetector(
+                onTap: _startScan,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFE53935), Color(0xFFD32F2F)],
+                    ),
+                    borderRadius: BorderRadius.circular(30),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.primaryRed.withOpacity(0.5),
+                        blurRadius: 20,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.monitor_heart, color: Colors.white, size: 24),
+                      SizedBox(width: 12),
+                      Text(
+                        'Start Scan',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
           
         // Bottom Panel
         Positioned(

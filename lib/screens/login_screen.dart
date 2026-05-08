@@ -33,6 +33,17 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const MainNavScreen()),
       );
+    } else if (result['requiresVerification'] == true) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please verify your email. OTP has been sent.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => OtpScreen(email: result['email'])),
+      );
     } else {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

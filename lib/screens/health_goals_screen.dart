@@ -25,6 +25,8 @@ class _HealthGoalsScreenState extends State<HealthGoalsScreen> with SingleTicker
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_handleTabSelection);
+    
     final user = Provider.of<AuthProvider>(context, listen: false).user;
     final goals = user?.healthGoals ?? HealthGoals(
       minBpm: 60,
@@ -41,24 +43,39 @@ class _HealthGoalsScreenState extends State<HealthGoalsScreen> with SingleTicker
     _fetchStatus();
   }
 
+  void _handleTabSelection() {
+    if (_tabController.indexIsChanging) {
+      setState(() {});
+    }
+  }
+
   @override
   void dispose() {
+    _tabController.removeListener(_handleTabSelection);
     _tabController.dispose();
     super.dispose();
   }
 
   Future<void> _fetchStatus() async {
-    final status = await Provider.of<AuthProvider>(context, listen: false).getHealthStatus();
-    if (mounted && status != null) {
-      setState(() {
-        _status = status;
-        final goals = HealthGoals.fromJson(status['healthGoals'] ?? {});
-        _minBpm = goals.minBpm.toDouble();
-        _maxBpm = goals.maxBpm.toDouble();
-        _dailyScanGoal = goals.dailyScanGoal;
-        _dailyBreathingGoal = goals.dailyBreathingGoal;
-        _weeklyBpmTarget = goals.weeklyBpmTarget;
-      });
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final status = await Provider.of<AuthProvider>(context, listen: false).getHealthStatus();
+      if (mounted && status != null) {
+        setState(() {
+          _status = status;
+          final goals = HealthGoals.fromJson(status['healthGoals'] ?? {});
+          _minBpm = goals.minBpm.toDouble();
+          _maxBpm = goals.maxBpm.toDouble();
+          _dailyScanGoal = goals.dailyScanGoal;
+          _dailyBreathingGoal = goals.dailyBreathingGoal;
+          _weeklyBpmTarget = goals.weeklyBpmTarget;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching health status: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -133,6 +150,12 @@ class _HealthGoalsScreenState extends State<HealthGoalsScreen> with SingleTicker
   }
 
   Widget _buildOverviewTab() {
+    if (_status == null && _isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppTheme.primaryRed),
+      );
+    }
+
     return RefreshIndicator(
       onRefresh: _fetchStatus,
       color: AppTheme.primaryRed,

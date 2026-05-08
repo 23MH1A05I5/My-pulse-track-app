@@ -11,6 +11,7 @@ import 'dart:math' show Random;
 import 'breathing_screen.dart';
 import 'sleep_screen.dart';
 import 'ai_chat_screen.dart';
+import '../models/user_model.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback? onScanComplete;
@@ -26,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen>
   BpmRecord? _latestRecord;
   List<BpmRecord> _history = [];
   bool _isLoading = true;
+  Map<String, dynamic>? _healthStatus;
   Timer? _subscriptionTimer;
   Duration _remainingTime = Duration.zero;
 
@@ -186,13 +188,18 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _fetchData() async {
-    final user = Provider.of<AuthProvider>(context, listen: false).user;
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
     if (user != null) {
       try {
-        await Provider.of<AuthProvider>(
-          context,
-          listen: false,
-        ).syncUserWithServer();
+        // Wait a bit for backend to process the new record
+        await Future.delayed(const Duration(milliseconds: 1500));
+
+        await authProvider.syncUserWithServer();
+        
+        final healthStatus = await authProvider.getHealthStatus();
+        debugPrint('HEALTH STATUS UPDATED: $healthStatus');
+
         final latest = await _apiService.getLatest(user.id);
         final history = await _apiService.getHistory(user.id);
 
@@ -200,6 +207,7 @@ class _HomeScreenState extends State<HomeScreen>
           setState(() {
             _latestRecord = latest;
             _history = history.reversed.toList();
+            _healthStatus = healthStatus;
             _isLoading = false;
           });
 
@@ -277,6 +285,8 @@ class _HomeScreenState extends State<HomeScreen>
                 _buildBpmDisplay(),
                 const SizedBox(height: 32),
                 _buildStatCards(),
+                const SizedBox(height: 24),
+                _buildDailyGoalsCard(),
                 const SizedBox(height: 24),
                 _buildAIInsights(),
                 const SizedBox(height: 24),
@@ -839,14 +849,17 @@ class _HomeScreenState extends State<HomeScreen>
     if (score < 40) score = 40;
 
     // AI Suggestion
+    final user = Provider.of<AuthProvider>(context, listen: false).user;
+    final targetMin = user?.healthGoals.minBpm ?? 60;
+    final targetMax = user?.healthGoals.maxBpm ?? 90;
+
     String suggestion = "Your heart rate is stable. Keep up the good work!";
-    if (bpm > 90) {
+    if (bpm > targetMax) {
       suggestion =
-          "Your heart rate is high. Try a breathing exercise to relax.";
-    }
-    if (bpm < 60) {
+          "Your heart rate is above your target range ($targetMax BPM). Try a breathing exercise to relax.";
+    } else if (bpm < targetMin) {
       suggestion =
-          "Your resting heart rate is excellent, indicating great fitness.";
+          "Your heart rate is below your target range ($targetMin BPM). If you're resting, this might be fine, but consult a doctor if you feel dizzy.";
     }
 
     return Container(
@@ -1042,6 +1055,84 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildDailyGoalsCard() {
+    final user = Provider.of<AuthProvider>(context).user;
+    final progress = _healthStatus?['progress'] ?? {'scansCompleted': 0, 'breathingMinutes': 0};
+    final goals = user?.healthGoals ?? HealthGoals(minBpm: 60, maxBpm: 90, dailyScanGoal: 3, dailyBreathingGoal: 5, weeklyBpmTarget: 85);
+    
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161A22),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Daily Progress',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              Icon(Icons.stars, color: Colors.amber.withOpacity(0.8), size: 20),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _buildGoalProgress(
+            'Scans',
+            progress['scansCompleted'] ?? 0,
+            goals.dailyScanGoal,
+            Colors.blueAccent,
+            Icons.qr_code_scanner,
+          ),
+          const SizedBox(height: 16),
+          _buildGoalProgress(
+            'Breathing',
+            progress['breathingMinutes'] ?? 0,
+            goals.dailyBreathingGoal,
+            Colors.tealAccent,
+            Icons.air,
+            unit: 'min',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGoalProgress(String label, int current, int goal, Color color, IconData icon, {String? unit}) {
+    double percent = goal > 0 ? (current / goal).clamp(0.0, 1.0) : 0.0;
+    return Column(
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 8),
+            Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            const Spacer(),
+            Text(
+              '$current/$goal${unit != null ? ' $unit' : ''}',
+              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: LinearProgressIndicator(
+            value: percent,
+            backgroundColor: Colors.white.withOpacity(0.05),
+            valueColor: AlwaysStoppedAnimation<Color>(color),
+            minHeight: 6,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -30,6 +30,15 @@ class ApiService {
       if (response.statusCode == 200) {
         return data;
       }
+      // Handle unverified email — backend returns 401 with "Please verify your email first"
+      if (response.statusCode == 401 && data['message'] != null && 
+          data['message'].toString().toLowerCase().contains('verify')) {
+        return {
+          'requiresVerification': true,
+          'email': data['email'] ?? email,
+          'message': data['message'],
+        };
+      }
       throw Exception(data['message'] ?? 'Login failed');
     } catch (e) {
       debugPrint('Login error: $e');
