@@ -28,8 +28,6 @@ class _HomeScreenState extends State<HomeScreen>
   List<BpmRecord> _history = [];
   bool _isLoading = true;
   Map<String, dynamic>? _healthStatus;
-  Timer? _subscriptionTimer;
-  Duration _remainingTime = Duration.zero;
 
   late AnimationController _animationController;
   late Animation<double> _heartScaleAnimation;
@@ -73,119 +71,9 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     ]).animate(_animationController);
 
-    _startSubscriptionTimer();
     _fetchData();
   }
 
-  void _startSubscriptionTimer() {
-    _subscriptionTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      if (authProvider.user?.subscriptionExpiry != null) {
-        if (mounted) {
-          setState(() {
-            _remainingTime = authProvider.user!.subscriptionExpiry!.difference(
-              DateTime.now(),
-            );
-            if (_remainingTime.isNegative) {
-              _remainingTime = Duration.zero;
-              authProvider.checkSubscription();
-            }
-          });
-        }
-      }
-    });
-  }
-
-  String _formatDuration(Duration duration) {
-    if (duration.isNegative) return "00d:00h:00m:00s";
-    String days = duration.inDays.toString().padLeft(2, '0');
-    String hours = (duration.inHours % 24).toString().padLeft(2, '0');
-    String minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
-    String seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
-    return "${days}d:${hours}h:${minutes}m:${seconds}s";
-  }
-
-  Widget _buildSubscriptionCard() {
-    final user = Provider.of<AuthProvider>(context).user;
-    if (user?.subscriptionType == null) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.only(top: 20),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.blueAccent.withValues(alpha: 0.15),
-            Colors.purpleAccent.withValues(alpha: 0.05),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.blueAccent.withOpacity(0.2),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.workspace_premium,
-              color: Colors.blueAccent,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  user!.subscriptionType!,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                const Text(
-                  'Premium Member',
-                  style: TextStyle(
-                    color: Colors.blueAccent,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              const Text(
-                'TIME LEFT',
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: 9,
-                  letterSpacing: 1,
-                ),
-              ),
-              Text(
-                _formatDuration(_remainingTime),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 
   Future<void> _fetchData() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -234,7 +122,6 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _animationController.dispose();
-    _subscriptionTimer?.cancel();
     super.dispose();
   }
 
@@ -247,7 +134,9 @@ class _HomeScreenState extends State<HomeScreen>
         onPressed: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => const AiChatScreen()),
+            MaterialPageRoute(
+              builder: (context) => AiChatScreen(latestRecord: _latestRecord),
+            ),
           );
         },
         backgroundColor: const Color(0xFF6C63FF),
@@ -278,7 +167,6 @@ class _HomeScreenState extends State<HomeScreen>
                     _buildStreakBadge(isBreathing: true),
                   ],
                 ),
-                _buildSubscriptionCard(),
                 const SizedBox(height: 32),
                 _buildCenterPiece(),
                 const SizedBox(height: 16),
@@ -648,25 +536,40 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildStatCards() {
+    String bp = '--/--';
+    if (_latestRecord?.systolic != null && _latestRecord?.diastolic != null) {
+      bp = '${_latestRecord!.systolic}/${_latestRecord!.diastolic}';
+    }
+
+    String oxygen = _latestRecord?.spo2 != null ? '${_latestRecord!.spo2}%' : '--%';
+    
+    // Calculate rough calories based on scans or average heart rate if available
+    int calories = 0;
+    if (_healthStatus != null && _healthStatus!['totalScans'] != null) {
+      calories = (_healthStatus!['totalScans'] as int) * 15; // 15 kcal per scan session roughly
+    } else if (_latestRecord != null && _latestRecord!.bpm > 0) {
+      calories = (_latestRecord!.bpm * 0.5).round(); // Simple mock based on heart rate
+    }
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         _buildSmallCard(
           Icons.favorite,
           AppTheme.primaryRed,
-          '120/80',
+          bp,
           'Blood Pressure\nmmHg',
         ),
         _buildSmallCard(
           Icons.water_drop,
           Colors.blueAccent,
-          '98%',
+          oxygen,
           'Oxygen Level\nSpO2',
         ),
         _buildSmallCard(
           Icons.local_fire_department,
           Colors.orangeAccent,
-          '420',
+          calories > 0 ? '$calories' : '--',
           'Calories Burn\nkcal',
         ),
       ],
@@ -862,6 +765,20 @@ class _HomeScreenState extends State<HomeScreen>
           "Your heart rate is below your target range ($targetMin BPM). If you're resting, this might be fine, but consult a doctor if you feel dizzy.";
     }
 
+    // Trend calculation
+    String trend = 'Stable';
+    Color trendColor = Colors.blueAccent;
+    if (_history.length >= 2) {
+      final prevBpm = _history[1].bpm;
+      if (bpm > prevBpm + 5) {
+        trend = 'Increasing';
+        trendColor = Colors.orangeAccent;
+      } else if (bpm < prevBpm - 5) {
+        trend = 'Decreasing';
+        trendColor = Colors.greenAccent;
+      }
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -919,7 +836,7 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               _buildInsightColumn('HRV (ms)', '$hrv', color: Colors.white),
               _buildInsightColumn('Stress Level', stress, color: stressColor),
-              _buildInsightColumn('Trend', 'Stable', color: Colors.blueAccent),
+              _buildInsightColumn('Trend', trend, color: trendColor),
             ],
           ),
           const SizedBox(height: 16),
@@ -1060,8 +977,25 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildDailyGoalsCard() {
     final user = Provider.of<AuthProvider>(context).user;
-    final progress = _healthStatus?['progress'] ?? {'scansCompleted': 0, 'breathingMinutes': 0};
-    final goals = user?.healthGoals ?? HealthGoals(minBpm: 60, maxBpm: 90, dailyScanGoal: 3, dailyBreathingGoal: 5, weeklyBpmTarget: 85);
+    
+    // Count real scans from history for today
+    final now = DateTime.now();
+    final todayScans = _history.where((r) => 
+      r.timestamp.year == now.year && 
+      r.timestamp.month == now.month && 
+      r.timestamp.day == now.day
+    ).length;
+
+    final progress = _healthStatus?['progress'] ?? {};
+    final breathingMinutes = progress['breathingMinutes'] ?? 0;
+    
+    final goals = user?.healthGoals ?? HealthGoals(
+      minBpm: 60, 
+      maxBpm: 90, 
+      dailyScanGoal: 3, 
+      dailyBreathingGoal: 5, 
+      weeklyBpmTarget: 85
+    );
     
     return Container(
       width: double.infinity,
@@ -1087,7 +1021,7 @@ class _HomeScreenState extends State<HomeScreen>
           const SizedBox(height: 20),
           _buildGoalProgress(
             'Scans',
-            progress['scansCompleted'] ?? 0,
+            todayScans,
             goals.dailyScanGoal,
             Colors.blueAccent,
             Icons.qr_code_scanner,
@@ -1095,7 +1029,7 @@ class _HomeScreenState extends State<HomeScreen>
           const SizedBox(height: 16),
           _buildGoalProgress(
             'Breathing',
-            progress['breathingMinutes'] ?? 0,
+            breathingMinutes,
             goals.dailyBreathingGoal,
             Colors.tealAccent,
             Icons.air,

@@ -476,25 +476,5 @@ class ApiService {
     }
   }
 
-  Future<bool> updateSubscription(
-    String userId,
-    String subscriptionType,
-    DateTime expiry,
-  ) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/auth/update-subscription'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'userId': userId,
-          'subscriptionType': subscriptionType,
-          'subscriptionExpiry': expiry.toIso8601String(),
-        }),
-      );
-      return response.statusCode == 200;
-    } catch (e) {
-      debugPrint('Update Subscription error: $e');
-      return false;
-    }
-  }
 }
+

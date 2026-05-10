@@ -10,7 +10,7 @@ import 'edit_personal_info_screen.dart';
 import 'health_goals_screen.dart';
 import 'privacy_security_screen.dart';
 import 'help_support_screen.dart';
-import 'subscription_plans_screen.dart';
+
 
 
 class ProfileScreen extends StatefulWidget {
@@ -22,48 +22,17 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _isUploading = false;
-  Timer? _timer;
-  Duration _remainingTime = Duration.zero;
 
   @override
   void initState() {
     super.initState();
-    _startTimer();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
     super.dispose();
   }
 
-  void _startTimer() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      if (authProvider.user?.subscriptionExpiry != null) {
-        if (mounted) {
-          setState(() {
-            _remainingTime = authProvider.user!.subscriptionExpiry!.difference(
-              DateTime.now(),
-            );
-            if (_remainingTime.isNegative) {
-              _remainingTime = Duration.zero;
-              authProvider.checkSubscription();
-            }
-          });
-        }
-      }
-    });
-  }
-
-  String _formatDuration(Duration duration) {
-    if (duration.isNegative) return "00d : 00h : 00m : 00s";
-    String days = duration.inDays.toString().padLeft(2, '0');
-    String hours = (duration.inHours % 24).toString().padLeft(2, '0');
-    String minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
-    String seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
-    return "${days}d : ${hours}h : ${minutes}m : ${seconds}s";
-  }
 
   Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
@@ -202,9 +171,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _buildOverviewCard(),
               const SizedBox(height: 16),
 
-              // Premium Member Card
-              _buildPremiumCard(),
-              const SizedBox(height: 16),
 
               // Menu Items
               _buildMenuSection(context),
@@ -497,87 +463,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildPremiumCard() {
-    final authProvider = Provider.of<AuthProvider>(context);
-    final isSubscribed = authProvider.user?.subscriptionType != null;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF121417),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryRed.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              isSubscribed ? Icons.verified : Icons.shield,
-              color: AppTheme.primaryRed,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isSubscribed ? 'Premium Member' : 'Go Premium',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                  ),
-                ),
-                if (isSubscribed)
-                  Text(
-                    _formatDuration(_remainingTime),
-                    style: const TextStyle(
-                      color: AppTheme.primaryRed,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
-                    ),
-                  )
-                else
-                  Text(
-                    'Unlock all premium features',
-                    style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                  ),
-              ],
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const SubscriptionPlansScreen(),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primaryRed,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              minimumSize: Size.zero,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            child: Text(
-              isSubscribed ? 'View Plan' : 'Upgrade',
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildMenuSection(BuildContext context) {
     return Container(

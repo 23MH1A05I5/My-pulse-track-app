@@ -59,8 +59,6 @@ class AuthProvider with ChangeNotifier {
         scanStreak: _user!.scanStreak,
         breathingStreak: _user!.breathingStreak,
         isTwoFactorEnabled: enabled,
-        subscriptionType: _user!.subscriptionType,
-        subscriptionExpiry: _user!.subscriptionExpiry,
       );
       await _saveUser(_user!);
       notifyListeners();
@@ -144,8 +142,6 @@ class AuthProvider with ChangeNotifier {
           scanStreak: _user!.scanStreak,
           breathingStreak: _user!.breathingStreak,
           isTwoFactorEnabled: _user!.isTwoFactorEnabled,
-          subscriptionType: _user!.subscriptionType,
-          subscriptionExpiry: _user!.subscriptionExpiry,
         );
         await _saveUser(_user!);
         notifyListeners();
@@ -196,8 +192,6 @@ class AuthProvider with ChangeNotifier {
         scanStreak: _user!.scanStreak,
         breathingStreak: _user!.breathingStreak,
         isTwoFactorEnabled: _user!.isTwoFactorEnabled,
-        subscriptionType: _user!.subscriptionType,
-        subscriptionExpiry: _user!.subscriptionExpiry,
       );
       await _saveUser(_user!);
       notifyListeners();
@@ -228,10 +222,6 @@ class AuthProvider with ChangeNotifier {
         scanStreak: status['scanStreak'] ?? 0,
         breathingStreak: status['breathingStreak'] ?? 0,
         isTwoFactorEnabled: status['isTwoFactorEnabled'] ?? _user!.isTwoFactorEnabled,
-        subscriptionType: status['subscriptionType'] ?? _user!.subscriptionType,
-        subscriptionExpiry: status['subscriptionExpiry'] != null 
-            ? DateTime.parse(status['subscriptionExpiry']) 
-            : _user!.subscriptionExpiry,
       );
       await _saveUser(_user!);
       notifyListeners();
@@ -275,68 +265,13 @@ class AuthProvider with ChangeNotifier {
     final userData = prefs.getString('user');
     if (userData != null) {
       _user = UserModel.fromJson(jsonDecode(userData));
-      checkSubscription();
-      // Sync with server to get latest data (including subscription)
+      // Sync with server to get latest data
       syncUserWithServer();
     }
     notifyListeners();
   }
 
-  void checkSubscription() {
-    if (_user != null && _user!.subscriptionExpiry != null) {
-      if (DateTime.now().isAfter(_user!.subscriptionExpiry!)) {
-        _user = UserModel(
-          id: _user!.id,
-          name: _user!.name,
-          email: _user!.email,
-          token: _user!.token,
-          profileImage: _user!.profileImage,
-          dob: _user!.dob,
-          gender: _user!.gender,
-          healthGoals: _user!.healthGoals,
-          achievements: _user!.achievements,
-          scanStreak: _user!.scanStreak,
-          breathingStreak: _user!.breathingStreak,
-          isTwoFactorEnabled: _user!.isTwoFactorEnabled,
-          subscriptionType: null,
-          subscriptionExpiry: null,
-        );
-        _saveUser(_user!);
-        notifyListeners();
-      }
-    }
-  }
 
-  Future<void> subscribeToPlan(String planType, int months) async {
-    if (_user == null) return;
-    int days = 30;
-    if (months == 6) days = 183;
-    if (months == 12) days = 365;
-    
-    final expiry = DateTime.now().add(Duration(days: days));
-    
-    // Update on server
-    await _apiService.updateSubscription(_user!.id, planType, expiry);
-    
-    _user = UserModel(
-      id: _user!.id,
-      name: _user!.name,
-      email: _user!.email,
-      token: _user!.token,
-      profileImage: _user!.profileImage,
-      dob: _user!.dob,
-      gender: _user!.gender,
-      healthGoals: _user!.healthGoals,
-      achievements: _user!.achievements,
-      scanStreak: _user!.scanStreak,
-      breathingStreak: _user!.breathingStreak,
-      isTwoFactorEnabled: _user!.isTwoFactorEnabled,
-      subscriptionType: planType,
-      subscriptionExpiry: expiry,
-    );
-    await _saveUser(_user!);
-    notifyListeners();
-  }
 
   Future<Map<String, dynamic>> getUserStats() async {
     if (_user == null) return {'avgBpm': 0, 'maxBpm': 0, 'minBpm': 0, 'totalScans': 0};

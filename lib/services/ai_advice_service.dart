@@ -21,50 +21,53 @@ class AiAdviceResult {
 class AiAdviceService {
   // ✅ Get your free API key from https://aistudio.google.com/
   // Current key is provided by the user.
-  static const String _apiKey = 'AIzaSyCbWOd1G7DgxWiU6B_SAo3U_DnNSAsc1lM';
+  static const String _apiKey = 'AIzaSyDoW9vMoyZE1OvLiZ7JVOVjfnqwsfjEPfU';
 
   // Model priority list — tries each in order if the previous fails/is rate-limited
   static const List<String> _modelFallbacks = [
-    'gemini-1.5-flash',
-    'gemini-1.5-pro',
-    'gemini-2.0-flash-exp',
-    'gemini-2.0-flash-lite-preview-02-05',
-    'gemini-1.5-flash-8b',
+    'gemini-2.0-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash-lite',
   ];
 
   static const String _baseUrl =
       'https://generativelanguage.googleapis.com/v1beta/models';
 
-  static const String _systemInstruction =
-      'You are a helpful and knowledgeable AI health assistant for the PulseTrack app. '
-      'Your job is to help users understand their heart health readings. '
-      'Keep answers concise (under 100 words), warm, and friendly. '
-      'Never provide a medical diagnosis. Always recommend consulting a doctor for medical concerns. '
-      'If the user shares their vitals (BPM, SpO2, blood pressure), give personalised feedback.';
+  static String _getSystemInstruction(String? vitalsContext) {
+    return 'You are a helpful and knowledgeable AI health assistant for the PulseTrack app. '
+        'Your job is to help users understand their heart health readings. '
+        'Keep answers concise (under 100 words), warm, and friendly. '
+        'Never provide a medical diagnosis. Always recommend consulting a doctor for medical concerns. '
+        '${vitalsContext ?? "If the user shares their vitals, give personalised feedback."}';
+  }
 
   // ── Chat with AI ─────────────────────────────────────────────────────────────
-  Future<String> chatWithAi(
-      String message, List<Map<String, String>> history) async {
-    
-    debugPrint('CHATBOT: Sending message: $message');
+  Future<String> chatWithAi(String message, List<Map<String, String>> history,
+      {String? vitalsContext}) async {
+    debugPrint('CHATBOT: Sending message: "$message"');
 
     if (_apiKey.isEmpty || _apiKey == 'YOUR_GEMINI_API_KEY_HERE') {
-      debugPrint('CHATBOT ERROR: API Key is missing or default.');
+      debugPrint('CHATBOT: No API key set, using offline mode.');
       return _offlineChat(message);
     }
 
-    // Build conversation contents, ensuring we start with a user message
+    // Build clean conversation contents for Gemini
     final contents = <Map<String, dynamic>>[];
-    bool seenFirstUser = false;
 
+    // Process history — filter empty, ensure alternating roles, skip leading 'model'
     for (final msg in history) {
-      final role = (msg['role'] == 'user' || msg['role'] == 'client') ? 'user' : 'model';
+      final role =
+          (msg['role'] == 'user' || msg['role'] == 'client') ? 'user' : 'model';
       final text = (msg['text'] ?? '').trim();
+
+      // Skip empty messages
       if (text.isEmpty) continue;
 
-      // Skip leading model messages (Gemini API needs user first)
-      if (!seenFirstUser && role == 'model') continue;
-      seenFirstUser = true;
+      // If we haven't started yet, skip leading model messages
+      if (contents.isEmpty && role == 'model') continue;
+
+      // Skip consecutive same-role messages
+      if (contents.isNotEmpty && contents.last['role'] == role) continue;
 
       contents.add({
         'role': role,
@@ -74,16 +77,18 @@ class AiAdviceService {
       });
     }
 
-    // Add current message if not already there
-    bool alreadyIncluded = false;
-    if (contents.isNotEmpty) {
-      final lastPart = (contents.last['parts'] as List).first;
-      if (lastPart['text'] == message && contents.last['role'] == 'user') {
-        alreadyIncluded = true;
+    // Ensure the current user message is at the end
+    if (contents.isNotEmpty && contents.last['role'] == 'user') {
+      // Check if last user message is already this message
+      final lastText = (contents.last['parts'] as List)[0]['text'];
+      if (lastText != message) {
+        // Can't have two user messages in a row — replace the last one
+        contents.last['parts'] = [
+          {'text': message}
+        ];
       }
-    }
-
-    if (!alreadyIncluded) {
+    } else {
+      // Either empty or last was 'model' — add user message
       contents.add({
         'role': 'user',
         'parts': [
@@ -92,6 +97,8 @@ class AiAdviceService {
       });
     }
 
+    debugPrint('CHATBOT: Prepared ${contents.length} messages for API.');
+
     // Try each model in fallback order
     for (final model in _modelFallbacks) {
       try {
@@ -99,14 +106,13 @@ class AiAdviceService {
         final body = jsonEncode({
           'system_instruction': {
             'parts': [
-              {'text': _systemInstruction}
+              {'text': _getSystemInstruction(vitalsContext)}
             ]
           },
           'contents': contents,
           'generationConfig': {
             'temperature': 0.7,
             'maxOutputTokens': 512,
-            'topP': 0.95,
           },
         });
 
@@ -117,41 +123,102 @@ class AiAdviceService {
               headers: {'Content-Type': 'application/json'},
               body: body,
             )
-            .timeout(const Duration(seconds: 15));
+            .timeout(const Duration(seconds: 20));
+
+        debugPrint('CHATBOT: Response status: ${response.statusCode}');
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body) as Map<String, dynamic>;
           final candidates = data['candidates'] as List?;
           if (candidates != null && candidates.isNotEmpty) {
             final candidate = candidates[0];
-            if (candidate['content'] != null && candidate['content']['parts'] != null) {
+            if (candidate['content'] != null &&
+                candidate['content']['parts'] != null) {
               final parts = candidate['content']['parts'] as List;
               if (parts.isNotEmpty) {
                 final aiText = (parts[0]['text'] as String).trim();
-                debugPrint('CHATBOT SUCCESS: Received response from $model');
+                debugPrint(
+                    'CHATBOT SUCCESS: Got response from $model (${aiText.length} chars)');
                 return aiText;
               }
             }
           }
-          debugPrint('CHATBOT ERROR: Empty response from $model');
+          debugPrint('CHATBOT ERROR: Empty/malformed response from $model');
+          debugPrint('CHATBOT BODY: ${response.body.substring(0, (response.body.length > 500) ? 500 : response.body.length)}');
         } else if (response.statusCode == 429) {
           debugPrint('CHATBOT: Rate limited on $model, trying next...');
           continue;
         } else if (response.statusCode == 400) {
-          debugPrint('CHATBOT ERROR 400: ${response.body}');
-          // Usually a format error in contents
-          break;
+          debugPrint('CHATBOT ERROR 400 ($model): ${response.body}');
+          // Try simplifying — send only the current message without history
+          final simpleResult = await _simpleSingleCall(message, model, vitalsContext);
+          if (simpleResult != null) return simpleResult;
+          continue;
         } else {
-          debugPrint('CHATBOT ERROR ${response.statusCode}: ${response.body}');
+          debugPrint(
+              'CHATBOT ERROR ${response.statusCode} ($model): ${response.body}');
         }
       } catch (e) {
         debugPrint('CHATBOT EXCEPTION ($model): $e');
       }
     }
 
-    // All models failed or exception occurred
+    // All models failed
     debugPrint('CHATBOT: All models failed. Falling back to offline mode.');
     return _offlineChat(message);
+  }
+
+  // ── Simple single-message call (no history) as a last resort ──────────────
+  Future<String?> _simpleSingleCall(
+      String message, String model, String? vitalsContext) async {
+    try {
+      debugPrint('CHATBOT: Trying simple single-message call on $model...');
+      final url = Uri.parse('$_baseUrl/$model:generateContent?key=$_apiKey');
+      final body = jsonEncode({
+        'system_instruction': {
+          'parts': [
+            {'text': _getSystemInstruction(vitalsContext)}
+          ]
+        },
+        'contents': [
+          {
+            'role': 'user',
+            'parts': [
+              {'text': message}
+            ]
+          }
+        ],
+        'generationConfig': {
+          'temperature': 0.7,
+          'maxOutputTokens': 512,
+        },
+      });
+
+      final response = await http
+          .post(url,
+              headers: {'Content-Type': 'application/json'}, body: body)
+          .timeout(const Duration(seconds: 20));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final candidates = data['candidates'] as List?;
+        if (candidates != null && candidates.isNotEmpty) {
+          final parts = candidates[0]['content']['parts'] as List;
+          if (parts.isNotEmpty) {
+            final aiText = (parts[0]['text'] as String).trim();
+            debugPrint(
+                'CHATBOT SUCCESS (simple): Got response from $model');
+            return aiText;
+          }
+        }
+      } else {
+        debugPrint(
+            'CHATBOT SIMPLE ERROR ${response.statusCode}: ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('CHATBOT SIMPLE EXCEPTION: $e');
+    }
+    return null;
   }
 
   // ── Get Advice (for Result Screen) ───────────────────────────────────────────
@@ -162,8 +229,8 @@ class AiAdviceService {
     if (_apiKey.isNotEmpty && _apiKey != 'YOUR_GEMINI_API_KEY_HERE') {
       for (final model in _modelFallbacks) {
         try {
-          final result = await _callGeminiAdvice(
-              model: model, bpm: bpm, status: status);
+          final result =
+              await _callGeminiAdvice(model: model, bpm: bpm, status: status);
           if (result != null) return result;
         } catch (e) {
           debugPrint('[$model] Advice error: $e');
@@ -209,7 +276,7 @@ Respond ONLY with valid JSON (no markdown, no extra text):
             body: jsonEncode({
               'system_instruction': {
                 'parts': [
-                  {'text': _systemInstruction}
+                  {'text': _getSystemInstruction(null)}
                 ]
               },
               'contents': [

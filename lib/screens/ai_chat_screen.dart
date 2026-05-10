@@ -3,8 +3,11 @@ import 'package:google_fonts/google_fonts.dart';
 import '../services/ai_advice_service.dart';
 import '../theme/app_theme.dart';
 
+import '../models/bpm_record.dart';
+
 class AiChatScreen extends StatefulWidget {
-  const AiChatScreen({super.key});
+  final BpmRecord? latestRecord;
+  const AiChatScreen({super.key, this.latestRecord});
 
   @override
   State<AiChatScreen> createState() => _AiChatScreenState();
@@ -40,7 +43,22 @@ class _AiChatScreenState extends State<AiChatScreen> {
     _scrollToBottom();
 
     try {
-      final response = await _aiService.chatWithAi(text, _messages);
+      // Build vitals context for the AI
+      String? vitalsContext;
+      if (widget.latestRecord != null) {
+        vitalsContext = 'The user\'s latest vitals are: '
+            'Heart Rate: ${widget.latestRecord!.bpm} BPM, '
+            'Oxygen: ${widget.latestRecord!.spo2 ?? "N/A"}%, '
+            'Blood Pressure: ${widget.latestRecord!.systolic ?? "N/A"}/${widget.latestRecord!.diastolic ?? "N/A"} mmHg.';
+      }
+
+      // Call AI — pass history WITHOUT the empty placeholder
+      final response = await _aiService.chatWithAi(
+        text,
+        _messages,
+        vitalsContext: vitalsContext,
+      );
+
       if (mounted) {
         // Detect if we fell through to offline mode
         final isOffline = response.contains('offline mode') ||
@@ -53,6 +71,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
         _scrollToBottom();
       }
     } catch (e) {
+      debugPrint('CHATBOT UI ERROR: $e');
       if (mounted) {
         setState(() {
           _messages.add({

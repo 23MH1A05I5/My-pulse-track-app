@@ -12,8 +12,6 @@ class UserModel {
   final int breathingStreak;
   final bool isTwoFactorEnabled;
 
-  final String? subscriptionType;
-  final DateTime? subscriptionExpiry;
 
   UserModel({
     required this.id,
@@ -28,8 +26,6 @@ class UserModel {
     this.scanStreak = 0,
     this.breathingStreak = 0,
     this.isTwoFactorEnabled = false,
-    this.subscriptionType,
-    this.subscriptionExpiry,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -46,10 +42,6 @@ class UserModel {
       scanStreak: json['scanStreak'] ?? 0,
       breathingStreak: json['breathingStreak'] ?? 0,
       isTwoFactorEnabled: json['isTwoFactorEnabled'] ?? false,
-      subscriptionType: json['subscriptionType'],
-      subscriptionExpiry: json['subscriptionExpiry'] != null 
-          ? DateTime.parse(json['subscriptionExpiry']) 
-          : null,
     );
   }
 
@@ -67,8 +59,6 @@ class UserModel {
       'scanStreak': scanStreak,
       'breathingStreak': breathingStreak,
       'isTwoFactorEnabled': isTwoFactorEnabled,
-      'subscriptionType': subscriptionType,
-      'subscriptionExpiry': subscriptionExpiry?.toIso8601String(),
     };
   }
 }
