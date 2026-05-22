@@ -19,19 +19,22 @@ class AiAdviceResult {
 }
 
 class AiAdviceService {
-  // ✅ Get your free API key from https://aistudio.google.com/
-  // Current key is provided by the user.
-  static const String _apiKey = 'AIzaSyDoW9vMoyZE1OvLiZ7JVOVjfnqwsfjEPfU';
+  // 🔑 Groq API key (OpenAI-compatible, ultra-fast LLM inference)
+  // Passed at build time: --dart-define=GROQ_API_KEY=gsk_...
+  static const String _apiKey = String.fromEnvironment(
+    'GROQ_API_KEY',
+    defaultValue: 'YOUR_GROQ_API_KEY_HERE',
+  );
 
-  // Model priority list — tries each in order if the previous fails/is rate-limited
+  // Model priority list — Groq's fastest inference models
   static const List<String> _modelFallbacks = [
-    'gemini-2.0-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-2.0-flash-lite',
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'gemma2-9b-it',
   ];
 
-  static const String _baseUrl =
-      'https://generativelanguage.googleapis.com/v1beta/models';
+  // Groq uses the OpenAI-compatible chat completions endpoint
+  static const String _baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
 
   static String _getSystemInstruction(String? vitalsContext) {
     return 'You are a helpful and knowledgeable AI health assistant for the PulseTrack app. '
@@ -46,82 +49,52 @@ class AiAdviceService {
       {String? vitalsContext}) async {
     debugPrint('CHATBOT: Sending message: "$message"');
 
-    if (_apiKey.isEmpty || _apiKey == 'YOUR_GEMINI_API_KEY_HERE') {
+    if (_apiKey.isEmpty) {
       debugPrint('CHATBOT: No API key set, using offline mode.');
       return _offlineChat(message);
     }
 
-    // Build clean conversation contents for Gemini
-    final contents = <Map<String, dynamic>>[];
+    // Build OpenAI-compatible messages array
+    final messages = <Map<String, String>>[
+      {'role': 'system', 'content': _getSystemInstruction(vitalsContext)},
+    ];
 
-    // Process history — filter empty, ensure alternating roles, skip leading 'model'
+    // Add conversation history
     for (final msg in history) {
-      final role =
-          (msg['role'] == 'user' || msg['role'] == 'client') ? 'user' : 'model';
+      final role = (msg['role'] == 'user' || msg['role'] == 'client') ? 'user' : 'assistant';
       final text = (msg['text'] ?? '').trim();
-
-      // Skip empty messages
       if (text.isEmpty) continue;
-
-      // If we haven't started yet, skip leading model messages
-      if (contents.isEmpty && role == 'model') continue;
-
-      // Skip consecutive same-role messages
-      if (contents.isNotEmpty && contents.last['role'] == role) continue;
-
-      contents.add({
-        'role': role,
-        'parts': [
-          {'text': text}
-        ]
-      });
+      // Skip if it would create consecutive same-role messages
+      if (messages.isNotEmpty && messages.last['role'] == role) continue;
+      messages.add({'role': role, 'content': text});
     }
 
-    // Ensure the current user message is at the end
-    if (contents.isNotEmpty && contents.last['role'] == 'user') {
-      // Check if last user message is already this message
-      final lastText = (contents.last['parts'] as List)[0]['text'];
-      if (lastText != message) {
-        // Can't have two user messages in a row — replace the last one
-        contents.last['parts'] = [
-          {'text': message}
-        ];
-      }
+    // Ensure current user message is at the end
+    if (messages.isNotEmpty && messages.last['role'] == 'user') {
+      messages.last['content'] = message;
     } else {
-      // Either empty or last was 'model' — add user message
-      contents.add({
-        'role': 'user',
-        'parts': [
-          {'text': message}
-        ]
-      });
+      messages.add({'role': 'user', 'content': message});
     }
 
-    debugPrint('CHATBOT: Prepared ${contents.length} messages for API.');
+    debugPrint('CHATBOT: Prepared ${messages.length} messages for Groq API.');
 
     // Try each model in fallback order
     for (final model in _modelFallbacks) {
       try {
-        final url = Uri.parse('$_baseUrl/$model:generateContent?key=$_apiKey');
-        final body = jsonEncode({
-          'system_instruction': {
-            'parts': [
-              {'text': _getSystemInstruction(vitalsContext)}
-            ]
-          },
-          'contents': contents,
-          'generationConfig': {
-            'temperature': 0.7,
-            'maxOutputTokens': 512,
-          },
-        });
-
-        debugPrint('CHATBOT: Calling Gemini API ($model)...');
+        debugPrint('CHATBOT: Calling Groq API ($model)...');
         final response = await http
             .post(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: body,
+              Uri.parse(_baseUrl),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $_apiKey',
+              },
+              body: jsonEncode({
+                'model': model,
+                'messages': messages,
+                'temperature': 0.7,
+                'max_tokens': 512,
+              }),
             )
             .timeout(const Duration(seconds: 20));
 
@@ -129,34 +102,20 @@ class AiAdviceService {
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body) as Map<String, dynamic>;
-          final candidates = data['candidates'] as List?;
-          if (candidates != null && candidates.isNotEmpty) {
-            final candidate = candidates[0];
-            if (candidate['content'] != null &&
-                candidate['content']['parts'] != null) {
-              final parts = candidate['content']['parts'] as List;
-              if (parts.isNotEmpty) {
-                final aiText = (parts[0]['text'] as String).trim();
-                debugPrint(
-                    'CHATBOT SUCCESS: Got response from $model (${aiText.length} chars)');
-                return aiText;
-              }
+          final choices = data['choices'] as List?;
+          if (choices != null && choices.isNotEmpty) {
+            final content = choices[0]['message']?['content'] as String?;
+            if (content != null && content.isNotEmpty) {
+              debugPrint('CHATBOT SUCCESS: Got response from $model (${content.length} chars)');
+              return content.trim();
             }
           }
           debugPrint('CHATBOT ERROR: Empty/malformed response from $model');
-          debugPrint('CHATBOT BODY: ${response.body.substring(0, (response.body.length > 500) ? 500 : response.body.length)}');
         } else if (response.statusCode == 429) {
           debugPrint('CHATBOT: Rate limited on $model, trying next...');
           continue;
-        } else if (response.statusCode == 400) {
-          debugPrint('CHATBOT ERROR 400 ($model): ${response.body}');
-          // Try simplifying — send only the current message without history
-          final simpleResult = await _simpleSingleCall(message, model, vitalsContext);
-          if (simpleResult != null) return simpleResult;
-          continue;
         } else {
-          debugPrint(
-              'CHATBOT ERROR ${response.statusCode} ($model): ${response.body}');
+          debugPrint('CHATBOT ERROR ${response.statusCode} ($model): ${response.body}');
         }
       } catch (e) {
         debugPrint('CHATBOT EXCEPTION ($model): $e');
@@ -168,69 +127,15 @@ class AiAdviceService {
     return _offlineChat(message);
   }
 
-  // ── Simple single-message call (no history) as a last resort ──────────────
-  Future<String?> _simpleSingleCall(
-      String message, String model, String? vitalsContext) async {
-    try {
-      debugPrint('CHATBOT: Trying simple single-message call on $model...');
-      final url = Uri.parse('$_baseUrl/$model:generateContent?key=$_apiKey');
-      final body = jsonEncode({
-        'system_instruction': {
-          'parts': [
-            {'text': _getSystemInstruction(vitalsContext)}
-          ]
-        },
-        'contents': [
-          {
-            'role': 'user',
-            'parts': [
-              {'text': message}
-            ]
-          }
-        ],
-        'generationConfig': {
-          'temperature': 0.7,
-          'maxOutputTokens': 512,
-        },
-      });
-
-      final response = await http
-          .post(url,
-              headers: {'Content-Type': 'application/json'}, body: body)
-          .timeout(const Duration(seconds: 20));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final candidates = data['candidates'] as List?;
-        if (candidates != null && candidates.isNotEmpty) {
-          final parts = candidates[0]['content']['parts'] as List;
-          if (parts.isNotEmpty) {
-            final aiText = (parts[0]['text'] as String).trim();
-            debugPrint(
-                'CHATBOT SUCCESS (simple): Got response from $model');
-            return aiText;
-          }
-        }
-      } else {
-        debugPrint(
-            'CHATBOT SIMPLE ERROR ${response.statusCode}: ${response.body}');
-      }
-    } catch (e) {
-      debugPrint('CHATBOT SIMPLE EXCEPTION: $e');
-    }
-    return null;
-  }
-
   // ── Get Advice (for Result Screen) ───────────────────────────────────────────
   Future<AiAdviceResult> getAdvice({
     required int bpm,
     required String status,
   }) async {
-    if (_apiKey.isNotEmpty && _apiKey != 'YOUR_GEMINI_API_KEY_HERE') {
+    if (_apiKey.isNotEmpty) {
       for (final model in _modelFallbacks) {
         try {
-          final result =
-              await _callGeminiAdvice(model: model, bpm: bpm, status: status);
+          final result = await _callGroqAdvice(model: model, bpm: bpm, status: status);
           if (result != null) return result;
         } catch (e) {
           debugPrint('[$model] Advice error: $e');
@@ -240,8 +145,8 @@ class AiAdviceService {
     return _getFallback(bpm: bpm);
   }
 
-  // ── Internal: call Gemini for structured advice ───────────────────────────────
-  Future<AiAdviceResult?> _callGeminiAdvice({
+  // ── Internal: call Groq for structured advice ──────────────────────────────
+  Future<AiAdviceResult?> _callGroqAdvice({
     required String model,
     required int bpm,
     required String status,
@@ -267,39 +172,30 @@ Respond ONLY with valid JSON (no markdown, no extra text):
   "watchFor": ["warning sign 1", "warning sign 2"]
 }''';
 
-    final url = Uri.parse('$_baseUrl/$model:generateContent?key=$_apiKey');
     try {
       final response = await http
           .post(
-            url,
-            headers: {'Content-Type': 'application/json'},
+            Uri.parse(_baseUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $_apiKey',
+            },
             body: jsonEncode({
-              'system_instruction': {
-                'parts': [
-                  {'text': _getSystemInstruction(null)}
-                ]
-              },
-              'contents': [
-                {
-                  'parts': [
-                    {'text': prompt}
-                  ]
-                }
+              'model': model,
+              'messages': [
+                {'role': 'system', 'content': _getSystemInstruction(null)},
+                {'role': 'user', 'content': prompt},
               ],
-              'generationConfig': {
-                'temperature': 0.6,
-                'maxOutputTokens': 400,
-              },
+              'temperature': 0.6,
+              'max_tokens': 400,
             }),
           )
           .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final text =
-            data['candidates'][0]['content']['parts'][0]['text'] as String;
-        final clean =
-            text.replaceAll('```json', '').replaceAll('```', '').trim();
+        final text = data['choices'][0]['message']['content'] as String;
+        final clean = text.replaceAll('```json', '').replaceAll('```', '').trim();
         final json = jsonDecode(clean) as Map<String, dynamic>;
         return AiAdviceResult(
           insight: json['insight'] as String,
@@ -308,6 +204,8 @@ Respond ONLY with valid JSON (no markdown, no extra text):
           statusLabel: _statusLabel(bpm),
           fromAi: true,
         );
+      } else {
+        debugPrint('Advice ERROR ${response.statusCode} ($model): ${response.body}');
       }
     } catch (e) {
       debugPrint('Advice Exception ($model): $e');
@@ -364,7 +262,6 @@ Respond ONLY with valid JSON (no markdown, no extra text):
       return "Hello! I'm your PulseTrack AI Health Assistant. I can help you understand your heart rate, SpO2, and blood pressure readings. Ask me anything about your health data! 💓";
     }
 
-    // Generic fallback
     return "I'm currently in offline mode due to connectivity issues or API limits. I can still answer questions about heart rate (BPM), blood oxygen (SpO2), blood pressure, stress, exercise, and sleep. What would you like to know?";
   }
 

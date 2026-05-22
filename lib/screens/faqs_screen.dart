@@ -1,7 +1,6 @@
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
 
 class FaqsScreen extends StatefulWidget {
   const FaqsScreen({super.key});

@@ -1,0 +1,56 @@
+version: '3.9'
+
+services:
+  # ── Node.js Backend ──────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pulsetrack-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      # Pass these via .env or Docker secrets — NEVER hardcode
+      MONGO_URI: ${MONGO_URI}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      EMAIL_USER: ${EMAIL_USER}
+      EMAIL_PASS: ${EMAIL_PASS}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      RPPG_API_URL: http://rppg:8001
+    depends_on:
+      - rppg
+    networks:
+      - pulsetrack-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Python rPPG Microservice ──────────────────────────────────────────────────
+  rppg:
+    build:
+      context: ./python_rppg
+      dockerfile: Dockerfile
+    container_name: pulsetrack-rppg
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      PORT: 8001
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+    networks:
+      - pulsetrack-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  pulsetrack-network:
+    driver: bridge

@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/ai_advice_service.dart';
+import '../services/rppg_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/signal_quality_widget.dart';
 
 class ResultScreen extends StatefulWidget {
   final int bpm;
@@ -13,6 +15,10 @@ class ResultScreen extends StatefulWidget {
   final int? diastolic;
   final VoidCallback? onDone;
   final bool isHistory;
+  /// Confidence percentage from rPPG algorithm (0–100)
+  final double? confidence;
+  /// Signal quality from rPPG processor
+  final SignalQuality? signalQuality;
 
   const ResultScreen({
     super.key,
@@ -23,6 +29,8 @@ class ResultScreen extends StatefulWidget {
     this.diastolic,
     this.onDone,
     this.isHistory = false,
+    this.confidence,
+    this.signalQuality,
   });
 
   @override
@@ -149,6 +157,18 @@ class _ResultScreenState extends State<ResultScreen>
                 child: _buildVitalsRow(),
               ),
             ),
+            // --- Signal Quality Card ---
+            if (widget.confidence != null)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: SignalQualityWidget(
+                    quality: widget.signalQuality ?? SignalQuality.fair,
+                    confidence: widget.confidence ?? 0,
+                    message: 'Scan completed',
+                  ),
+                ),
+              ),
             // --- AI Section ---
             SliverToBoxAdapter(
               child: Padding(
@@ -540,7 +560,7 @@ class _ResultScreenState extends State<ResultScreen>
                   const Icon(Icons.auto_awesome, color: Colors.white, size: 13),
                   const SizedBox(width: 5),
                   Text(
-                    advice.fromAi ? 'Powered by Gemini AI' : 'Health Advisor',
+                    advice.fromAi ? 'Powered by Groq AI' : 'Health Advisor',
                     style: GoogleFonts.outfit(
                       color: Colors.white,
                       fontSize: 11,

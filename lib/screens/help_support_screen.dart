@@ -2,7 +2,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
 import 'faqs_screen.dart';
 import 'how_it_works_screen.dart';
 import 'video_tutorials_screen.dart';

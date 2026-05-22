@@ -9,10 +9,14 @@ import 'screens/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('Firebase initialization failed: $e');
+  // Firebase.initializeApp() needs google-services.json (Android) or
+  // firebase_options.dart (Web). Skip on web to avoid null-options crash.
+  if (!kIsWeb) {
+    try {
+      await Firebase.initializeApp();
+    } catch (e) {
+      debugPrint('Firebase initialization failed: $e');
+    }
   }
   runApp(
     DevicePreview(

@@ -142,7 +142,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   ),
                 ),
                 Text(
-                  'Powered by Gemini',
+                  'Powered by Groq AI',
                   style: GoogleFonts.outfit(
                     color: Colors.white38,
                     fontSize: 11,

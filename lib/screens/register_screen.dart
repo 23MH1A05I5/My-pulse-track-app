@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
-import 'main_nav_screen.dart';
 import 'otp_screen.dart';
 
 class RegisterScreen extends StatefulWidget {

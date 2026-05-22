@@ -5,12 +5,20 @@ import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import '../models/bpm_record.dart';
+import '../utils/app_config.dart';
 
 class ApiService {
-  // Use 10.0.2.2 for Android Emulator, localhost for Web/iOS Simulator
-  static String get baseUrl {
-    // Production Render URL
-    return 'https://pulse-track-backend-1-bgfi.onrender.com/api';
+  /// Centralized base URL — change only in AppConfig, never here
+  static String get baseUrl => AppConfig.backendBaseUrl;
+
+  /// Build Authorization header from stored token
+  static Future<Map<String, String>> _authHeaders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
   }
 
   static const String _localRecordsKey = 'local_bpm_records';
@@ -248,15 +256,21 @@ class ApiService {
 
   Future<BpmRecord?> getLatest(String userId) async {
     try {
-      // Try local first if server is slow
+      // Try local cache first for fast response
       final history = await getHistory(userId);
       if (history.isNotEmpty) return history.first;
-      
-      final response = await http.get(Uri.parse('$baseUrl/bpm/latest/$userId'))
+
+      final response = await http
+          .get(Uri.parse('$baseUrl/bpm/latest/$userId'))
           .timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200 && response.body.isNotEmpty) {
-        return BpmRecord.fromJson(jsonDecode(response.body));
+      if (response.statusCode == 200 &&
+          response.body.isNotEmpty &&
+          response.body != 'null') {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          return BpmRecord.fromJson(decoded);
+        }
       }
       return null;
     } catch (e) {
@@ -310,9 +324,9 @@ class ApiService {
       // Determine content type based on extension
       final extension = fileName.split('.').last.toLowerCase();
       String mimeType = 'jpeg';
-      if (extension == 'png')
+      if (extension == 'png') {
         mimeType = 'png';
-      else if (extension == 'webp')
+      } else if (extension == 'webp')
         mimeType = 'webp';
 
       request.files.add(

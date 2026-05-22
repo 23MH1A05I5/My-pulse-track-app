@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
-import 'scan_screen.dart';
 import 'history_screen.dart';
 import 'profile_screen.dart';
 import '../theme/app_theme.dart';

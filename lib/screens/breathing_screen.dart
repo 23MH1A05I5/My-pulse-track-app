@@ -338,11 +338,11 @@ class _BreathingScreenState extends State<BreathingScreen> with SingleTickerProv
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildStepIndicator(1, 'Inhale', '${_inhaleSec} Sec', _currentPhase == 1, Colors.cyanAccent),
+                  _buildStepIndicator(1, 'Inhale', '$_inhaleSec Sec', _currentPhase == 1, Colors.cyanAccent),
                   _buildLineConnection(_currentPhase == 1 || _currentPhase == 2),
-                  _buildStepIndicator(2, 'Hold', '${_holdSec} Sec', _currentPhase == 2, Colors.blueAccent),
+                  _buildStepIndicator(2, 'Hold', '$_holdSec Sec', _currentPhase == 2, Colors.blueAccent),
                   _buildLineConnection(_currentPhase == 2 || _currentPhase == 3),
-                  _buildStepIndicator(3, 'Exhale', '${_exhaleSec} Sec', _currentPhase == 3, Colors.purpleAccent),
+                  _buildStepIndicator(3, 'Exhale', '$_exhaleSec Sec', _currentPhase == 3, Colors.purpleAccent),
                 ],
               ),
               const SizedBox(height: 30),

@@ -1,3 +1,8 @@
+/// PulseTrack — Extended BPM Record Model
+/// Adds confidence, signal quality, and noise level fields
+/// to the existing model for production-grade scan results.
+library;
+
 import 'package:flutter/foundation.dart';
 
 class BpmRecord {
@@ -8,6 +13,17 @@ class BpmRecord {
   final int? spo2;
   final int? systolic;
   final int? diastolic;
+
+  // ── New Production Fields ──────────────────────────────────────────────────
+  /// Confidence percentage from rPPG algorithm (0–100%)
+  final double? confidence;
+
+  /// Signal quality classification from Python processor
+  final String? signalQuality;
+
+  /// Noise level (0.0 = clean, 1.0 = very noisy)
+  final double? noiseLevel;
+
   final DateTime timestamp;
 
   BpmRecord({
@@ -19,6 +35,9 @@ class BpmRecord {
     this.spo2,
     this.systolic,
     this.diastolic,
+    this.confidence,
+    this.signalQuality,
+    this.noiseLevel,
   });
 
   factory BpmRecord.fromJson(Map<String, dynamic> json) {
@@ -27,7 +46,7 @@ class BpmRecord {
     int? packedSys;
     int? packedDia;
 
-    // Smart Unpacking: Check if status contains packed vitals [V:spo2,sys,dia]
+    // Legacy: unpack vitals from status string "[V:spo2,sys,dia]"
     if (rawStatus.contains('[V:')) {
       try {
         final parts = rawStatus.split('[V:');
@@ -46,22 +65,22 @@ class BpmRecord {
     return BpmRecord(
       id: json['_id']?.toString() ?? json['id']?.toString(),
       userId: json['userId']?.toString() ?? '',
-      bpm: json['bpm'] is int ? json['bpm'] : int.tryParse(json['bpm']?.toString() ?? '0') ?? 0,
+      bpm: _parseInt(json['bpm']) ?? 0,
       status: rawStatus,
-      spo2: packedSpo2 ?? (json['spo2'] is int ? json['spo2'] : int.tryParse(json['spo2']?.toString() ?? '')),
-      systolic: packedSys ?? (json['systolic'] is int ? json['systolic'] : int.tryParse(json['systolic']?.toString() ?? '')),
-      diastolic: packedDia ?? (json['diastolic'] is int ? json['diastolic'] : int.tryParse(json['diastolic']?.toString() ?? '')),
-      timestamp: json['timestamp'] != null 
-          ? DateTime.parse(json['timestamp']).toLocal() 
+      spo2: packedSpo2 ?? _parseInt(json['spo2']),
+      systolic: packedSys ?? _parseInt(json['systolic']),
+      diastolic: packedDia ?? _parseInt(json['diastolic']),
+      confidence: _parseDouble(json['confidence']),
+      signalQuality: json['signalQuality']?.toString(),
+      noiseLevel: _parseDouble(json['noiseLevel']),
+      timestamp: json['timestamp'] != null
+          ? DateTime.parse(json['timestamp'].toString()).toLocal()
           : DateTime.now(),
     );
   }
 
-  // Helper to get clean status for UI
-  String get displayStatus => status;
-
   Map<String, dynamic> toJson() {
-    // Smart Packing: Include vitals in status string to ensure they save to old backends
+    // Preserve legacy vitals packing for old backend compatibility
     String packedStatus = status;
     if (spo2 != null || systolic != null) {
       packedStatus = '$status [V:${spo2 ?? 0},${systolic ?? 0},${diastolic ?? 0}]';
@@ -71,10 +90,39 @@ class BpmRecord {
       'userId': userId,
       'bpm': bpm,
       'status': packedStatus,
-      'spo2': spo2, // Keep these for future-proofing
+      'spo2': spo2,
       'systolic': systolic,
       'diastolic': diastolic,
+      'confidence': confidence,
+      'signalQuality': signalQuality,
+      'noiseLevel': noiseLevel,
       'timestamp': timestamp.toIso8601String(),
     };
+  }
+
+  // ── Computed Getters ───────────────────────────────────────────────────────
+
+  /// Human-readable confidence string, e.g. "94%"
+  String get confidenceLabel =>
+      confidence != null ? '${confidence!.toInt()}%' : 'N/A';
+
+  /// Quality label for display
+  String get qualityLabel => signalQuality ?? 'N/A';
+
+  /// Whether this was a high-confidence scan
+  bool get isHighConfidence => (confidence ?? 0) >= 75;
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  static int? _parseInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    return int.tryParse(value.toString());
+  }
+
+  static double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    return double.tryParse(value.toString());
   }
 }

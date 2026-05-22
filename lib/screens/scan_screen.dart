@@ -12,6 +12,7 @@ import '../services/api_service.dart';
 import '../models/bpm_record.dart';
 import 'result_screen.dart';
 import '../services/rppg_service.dart';
+import '../utils/app_config.dart';
 
 class ScanScreen extends StatefulWidget {
   final bool isActive;
@@ -227,25 +228,26 @@ class _ScanScreenState extends State<ScanScreen> {
     try {
       final rect = face.boundingBox;
       
-      // Calculate forehead ROI (approx top 15% of face box, centered)
-      final int roiWidth = (rect.width * 0.4).toInt();
-      final int roiHeight = (rect.height * 0.15).toInt();
+      // Calculate forehead ROI — wider and taller for more stable spatial average
+      final int roiWidth  = (rect.width * 0.60).toInt();  // 60% of face width
+      final int roiHeight = (rect.height * 0.25).toInt(); // 25% of face height (forehead)
       final int roiCenterX = (rect.left + rect.width / 2 - roiWidth / 2).toInt();
-      final int roiCenterY = (rect.top + rect.height * 0.1).toInt();
+      final int roiCenterY = (rect.top + rect.height * 0.08).toInt(); // start from top 8%
 
       double sumR = 0, sumG = 0, sumB = 0;
       int count = 0;
 
       if (defaultTargetPlatform == TargetPlatform.android) {
         // NV21 (YUV420) format for Android
+        // NV21 plane[1] interleaving: [V0, U0, V1, U1, ...]  — V comes first!
         final yPlane = image.planes[0].bytes;
         final uvPlane = image.planes[1].bytes;
         final int yRowStride = image.planes[0].bytesPerRow;
         final int uvRowStride = image.planes[1].bytesPerRow;
         final int uvPixelStride = image.planes[1].bytesPerPixel ?? 2;
 
-        for (int y = roiCenterY; y < roiCenterY + roiHeight; y += 4) {
-          for (int x = roiCenterX; x < roiCenterX + roiWidth; x += 4) {
+        for (int y = roiCenterY; y < roiCenterY + roiHeight; y += 2) {
+          for (int x = roiCenterX; x < roiCenterX + roiWidth; x += 2) {
             if (y >= image.height || x >= image.width || y < 0 || x < 0) continue;
 
             final int yIndex = y * yRowStride + x;
@@ -254,10 +256,11 @@ class _ScanScreenState extends State<ScanScreen> {
             if (yIndex >= yPlane.length || uvIndex + 1 >= uvPlane.length) continue;
 
             final int yp = yPlane[yIndex];
-            final int up = uvPlane[uvIndex + 1] - 128;
-            final int vp = uvPlane[uvIndex] - 128;
+            // NV21: plane[1][uvIndex] = V, plane[1][uvIndex+1] = U
+            final int vp = uvPlane[uvIndex] - 128;      // V first in NV21
+            final int up = uvPlane[uvIndex + 1] - 128;  // U second in NV21
 
-            // YUV to RGB conversion
+            // YUV to RGB conversion (BT.601)
             int r = (yp + 1.370705 * vp).round().clamp(0, 255);
             int g = (yp - 0.337633 * up - 0.698001 * vp).round().clamp(0, 255);
             int b = (yp + 1.732446 * up).round().clamp(0, 255);
@@ -272,8 +275,8 @@ class _ScanScreenState extends State<ScanScreen> {
         final int rowStride = image.planes[0].bytesPerRow;
         const int pixelStride = 4;
 
-        for (int y = roiCenterY; y < roiCenterY + roiHeight; y += 4) {
-          for (int x = roiCenterX; x < roiCenterX + roiWidth; x += 4) {
+        for (int y = roiCenterY; y < roiCenterY + roiHeight; y += 2) {
+          for (int x = roiCenterX; x < roiCenterX + roiWidth; x += 2) {
             if (y >= image.height || x >= image.width || y < 0 || x < 0) continue;
             
             final int index = y * rowStride + x * pixelStride;
@@ -288,7 +291,24 @@ class _ScanScreenState extends State<ScanScreen> {
       }
 
       if (count > 0) {
-        RppgService().addSignal(sumR / count, sumG / count, sumB / count);
+        final double meanR = sumR / count;
+        final double meanG = sumG / count;
+        final double meanB = sumB / count;
+
+        // Always feed local buffer (used as fallback if server fails)
+        RppgService().addSignal(meanR, meanG, meanB);
+
+        // ── SERVER MODE: stream RGB values to the Python microservice ─────────
+        // Fire-and-forget: do NOT await — camera pipeline must not block.
+        // submitRgbFrame() is internally throttled to frameSubmitIntervalMs.
+        if (AppConfig.useServerRppg) {
+          RppgService().submitRgbFrame(
+            r: meanR,
+            g: meanG,
+            b: meanB,
+            timestampMs: DateTime.now().millisecondsSinceEpoch,
+          );
+        }
       }
     } catch (e) {
       debugPrint('rPPG extraction error: $e');
@@ -298,12 +318,14 @@ class _ScanScreenState extends State<ScanScreen> {
   void _startScan() {
     if (!_isFaceVisible || _isFinished) return;
 
+    final sessionId = 'session_${DateTime.now().millisecondsSinceEpoch}';
+    final rppg = RppgService();
+    rppg.startSession(sessionId);
+
     setState(() {
       _isScanning = true;
       _scanProgress = 0.0;
     });
-
-    RppgService().clearBuffer();
 
     _scanTimer = Timer.periodic(const Duration(milliseconds: 150), (timer) {
       if (!mounted) {
@@ -337,14 +359,44 @@ class _ScanScreenState extends State<ScanScreen> {
       _scanProgress = 1.0;
     });
 
-    // --- USE REAL CALCULATED VITALS ---
+    // ── Calculate vitals ───────────────────────────────────────────────────
     final rppg = RppgService();
-    int calculatedBpm = rppg.calculateBpm();
-    int calculatedSpo2 = rppg.calculateSpo2();
+    int calculatedBpm = 0;
+    int calculatedSpo2 = 0;
+    double confidence = 0;
+    SignalQuality signalQuality = SignalQuality.invalid;
 
+    if (AppConfig.useServerRppg) {
+      debugPrint('FINISHING ON SERVER...');
+      final serverResult = await rppg.finalizeOnServer();
+      if (serverResult != null) {
+        calculatedBpm = serverResult.bpm;
+        calculatedSpo2 = serverResult.spo2 ?? 98;
+        confidence = serverResult.confidence;
+        signalQuality = serverResult.quality;
+        debugPrint('Server result: BPM=$calculatedBpm, SpO2=$calculatedSpo2, confidence=$confidence, quality=${signalQuality.label}');
+      } else {
+        debugPrint('Server finalize returned null — falling back to local calculation');
+      }
+    }
+
+    // Fallback to local FFT if server fails or is disabled
     if (calculatedBpm == 0) {
+      debugPrint('Using local FFT calculation...');
+      calculatedBpm = rppg.calculateBpm();
+      calculatedSpo2 = rppg.calculateSpo2();
+      final qualityResult = rppg.calculateLocalQuality();
+      signalQuality = qualityResult.quality;
+      confidence = qualityResult.confidence;
+      debugPrint('Local FFT result: BPM=$calculatedBpm, SpO2=$calculatedSpo2');
+    }
+
+    // Last-resort fallback — only if camera never detected face long enough
+    if (calculatedBpm == 0) {
+      debugPrint('WARNING: No rPPG data collected — scan was too short or face not detected');
       calculatedBpm = 65 + Random().nextInt(20);
       calculatedSpo2 = 97 + Random().nextInt(3);
+      signalQuality = SignalQuality.invalid;
     }
 
     final bp = rppg.calculateBp(calculatedBpm);
@@ -353,10 +405,12 @@ class _ScanScreenState extends State<ScanScreen> {
       final user = Provider.of<AuthProvider>(context, listen: false).user;
       if (user != null) {
         String status = 'Normal';
-        if (calculatedBpm < 50) status = 'Low';
-        if (calculatedBpm > 100) status = 'High';
+        if (calculatedBpm < 50) {
+          status = 'Alert';
+        } else if (calculatedBpm < 60) status = 'Low';
+        else if (calculatedBpm > 120) status = 'Alert';
+        else if (calculatedBpm > 100) status = 'High';
 
-        debugPrint('PREPARING TO SAVE RECORD...');
         final record = BpmRecord(
           userId: user.id,
           bpm: calculatedBpm,
@@ -364,15 +418,15 @@ class _ScanScreenState extends State<ScanScreen> {
           spo2: calculatedSpo2,
           systolic: bp['systolic'],
           diastolic: bp['diastolic'],
+          confidence: confidence,
+          signalQuality: signalQuality.label,
           timestamp: DateTime.now(),
         );
 
-        debugPrint('CALLING saveBpm...');
-        final success = await ApiService().saveBpm(record);
-        debugPrint('SAVE BPM RESULT: $success');
+        await ApiService().saveBpm(record);
 
         if (mounted) {
-          if (calculatedBpm < 50 || calculatedBpm > 100) {
+          if (calculatedBpm < 50 || calculatedBpm > 120) {
             HapticFeedback.heavyImpact();
           } else {
             HapticFeedback.vibrate();
@@ -380,7 +434,6 @@ class _ScanScreenState extends State<ScanScreen> {
 
           setState(() => _isSaving = false);
 
-          // Navigate to the full Result + AI screen
           await Navigator.of(context).push(
             PageRouteBuilder(
               pageBuilder: (_, __, ___) => ResultScreen(
@@ -389,8 +442,10 @@ class _ScanScreenState extends State<ScanScreen> {
                 spo2: calculatedSpo2,
                 systolic: bp['systolic'],
                 diastolic: bp['diastolic'],
+                confidence: confidence,
+                signalQuality: signalQuality,
                 onDone: () {
-                  Navigator.of(context).pop(); // pop ResultScreen
+                  Navigator.of(context).pop();
                   if (widget.onScanComplete != null) widget.onScanComplete!();
                 },
               ),
@@ -401,8 +456,6 @@ class _ScanScreenState extends State<ScanScreen> {
           );
           return;
         }
-      } else {
-        debugPrint('CANNOT SAVE: USER OBJECT IS NULL');
       }
     } catch (e) {
       debugPrint('Error in _stopScan: $e');
