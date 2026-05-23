@@ -1,0 +1,26 @@
+services:
+  # ── Flutter Web Frontend (Static Site) ──────────────────────────────────────
+  - type: web
+    name: pulse-track-frontend
+    runtime: static
+    buildCommand: |
+      curl -fsSL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.32.0-stable.tar.xz -o flutter.tar.xz
+      tar xf flutter.tar.xz
+      export PATH="$PATH:$(pwd)/flutter/bin"
+      flutter pub get
+      flutter build web --release
+    staticPublishPath: build/web
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+      - path: /flutter_service_worker.js
+        name: Cache-Control
+        value: no-cache
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: FLUTTER_VERSION
+        value: "3.32.0"
