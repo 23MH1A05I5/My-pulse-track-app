@@ -1,0 +1,61 @@
+name: 🚀 Deploy Flutter Web to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Allow manual trigger from GitHub Actions UI
+
+# Required for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one concurrent deployment at a time
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      # ── 1. Checkout code ─────────────────────────────────────────────────────
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Setup Flutter ─────────────────────────────────────────────────────
+      - name: 🐦 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.32.0"
+          channel: "stable"
+          cache: true
+
+      # ── 3. Install dependencies ───────────────────────────────────────────────
+      - name: 📦 Install dependencies
+        run: flutter pub get
+
+      # ── 4. Build Flutter Web ──────────────────────────────────────────────────
+      - name: 🏗️ Build Flutter Web (release)
+        run: flutter build web --release --base-href "/My-pulse-track-app/"
+
+      # ── 5. Setup GitHub Pages ─────────────────────────────────────────────────
+      - name: ⚙️ Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      # ── 6. Upload build artifact ──────────────────────────────────────────────
+      - name: 📤 Upload build/web to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+      # ── 7. Deploy to GitHub Pages ─────────────────────────────────────────────
+      - name: 🌐 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
