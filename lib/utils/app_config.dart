@@ -13,11 +13,9 @@ class AppConfig {
   static String get backendBaseUrl => _prodBackendUrl;
 
   // ── Python rPPG Microservice ───────────────────────────────────────────────
-  // Deployed on Render — update this URL after deploying python_rppg service
-  // Local dev (physical device): 'http://10.244.62.93:8001'
-  // Local dev (emulator):        'http://10.0.2.2:8001'
+  // Deployed on Render as Docker service
   static const String _rppgUrl =
-      'https://pulsetrack-rppg.onrender.com'; // ← UPDATE after Render deploy
+      'https://pulsetrack-rppg.onrender.com';
 
   static String get rppgBaseUrl => _rppgUrl;
 

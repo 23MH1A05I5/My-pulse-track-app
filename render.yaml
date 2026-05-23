@@ -1,4 +1,16 @@
 services:
+  # ── Python rPPG Microservice (Docker) ────────────────────────────────────────
+  - type: web
+    name: pulsetrack-rppg
+    runtime: docker
+    dockerfilePath: ./python_rppg/Dockerfile
+    dockerContext: ./python_rppg
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ALLOWED_ORIGINS
+        value: https://23mh1a05i5.github.io,https://my-pulse-track-app.onrender.com,https://pulse-track-backend-1-bgfi.onrender.com
+
   # ── Flutter Web Frontend (Static Site) ──────────────────────────────────────
   - type: web
     name: pulse-track-frontend
@@ -8,7 +20,7 @@ services:
       tar xf flutter.tar.xz
       export PATH="$PATH:$(pwd)/flutter/bin"
       flutter pub get
-      flutter build web --release
+      flutter build web --release --base-href "/My-pulse-track-app/"
     staticPublishPath: build/web
     headers:
       - path: /*
